@@ -1,0 +1,296 @@
+Timestamp: 20260516_050132
+Prompt: 
+  based on the provided "Agent Information" and "Available Model Interview Response", as the Principal Investigator of the research for Scale-Aware Adaptive Supervised Network with Limited Medical Annotations and research description: Scale-Aware Adaptive Supervised Network with Limited Medical Annotations ,Core idea is: Introduce SASNet, a dual-branch architecture that fuses low-level and high-level features via novel scale-aware adaptive reweighting to handle limited annotations. Key components are: (1) a scale-aware adaptive reweight strategy that dynamically weights pixel-wise predictions using temporal confidence accumulation, (2) a view variance enhancement mechanism using 3D Fourier-domain transformations to simulate annotation variability, and (3) segmentation–regression consistency learning with signed distance maps to improve boundary precision. These components integrate spatial, temporal, and geometric consistency within a unified optimization framework for semi-supervised medical image segmentation. ,keywords to are: medical image segmentation, semi-supervised learning, scale-aware learning, annotation scarcity, view variance, signed distance map ,other information:A semi-supervised segmentation framework (SASNet) that combines scale-aware adaptive reweighting, simulated annotation variability in the 3D Fourier domain, and signed distance map consistency to better handle annotation scarcity, inter-annotator variability, and multi-scale boundary delineation..
+  You have to select the perfect candidate for this agent [treat agent like the job role you are hiring the candidate for].
+  Agent Information:
+  Agent Name:  Geometric Consistency & Signed Distance Map Specialist
+  Agent required Expertise: Level-set theory, signed distance transform computation, regression-consistency losses, boundary-aware segmentation, and shape priors for medical structures.
+  Agent Goal: Design and integrate segmentation–regression consistency mechanisms using signed distance maps to sharpen boundaries and produce geometrically consistent segmentations under annotation scarcity.
+  Agent Role: Formulate and implement SDF-based losses, ensure stable SDF regression training (loss balancing, numerical stability), design geometric regularizers and shape-consistency checks, and run experiments showing improved boundary precision and calibrated SDF outputs.
+  Agnet required capabilities: Mathematical understanding of signed distance transforms and level-sets, numerical stability techniques, loss formulation and balancing, implementation in DL frameworks, shape prior modelling, evaluation of boundary metrics (Hausdorff, boundary F-score), and experience with regression–segmentation consistency approaches.
+
+  Below are the Available Model Interview Responses and based on them choose the best model for the above agent job.
+
+  Available Model Interview Response:
+Model 1 :	Model Reasons: I will handle this task by acting as the Geometric Consistency & Signed Distance Map Specialist: I will design mathematically grounded, numerically stable SDF-based losses and consistency mechanisms, specify implementation details (PyTorch-style), propose sensible training schedules and loss-balancing strategies, design geometric regularizers and shape checks, and outline experiments and evaluation to demonstrate improved boundary precision with limited annotations. I cannot run experiments or produce trained models here, but I can deliver reproducible code, loss definitions, hyperparameter recommendations, diagnostics, and experiment plans sufficient for implementation and empirical validation.
+
+Confidence: 9/10 for design, theory, implementation instructions, and experimental planning; 0% for executing experiments (I cannot run training or obtain empirical results). Justification: I have detailed knowledge of SDFs, level-set theory, common numerical stability techniques, loss balancing methods, and evaluation metrics for medical segmentation; I will provide precise, tested-in-practice patterns and robust recommendations, but actual empirical validation requires running the pipeline on target data.
+
+PLAN (strategy, methodology, execution steps)
+
+1) Overall strategy
+- Use a dual-head network: segmentation head (classification logits / softmax) + SDF regression head (scalar field approximating signed distance φ).
+- Train jointly with segmentation loss and SDF regression loss plus geometric regularizers and a segmentation–regression consistency loss that enforces agreement between the two outputs.
+- Use limited annotations by maximizing supervision per annotated sample (SDF targets derived from masks) and adding consistency/self-supervision from unlabeled or weakly labeled data (e.g., boundary-only, scribbles) where possible.
+- Enforce numerical stability via target normalization, bounded outputs (tanh or scaled outputs), robust regression losses (Huber / Smooth L1), gradient clipping, and multi-task loss balancing (uncertainty weighting or GradNorm).
+- Evaluate with boundary-sensitive metrics: Dice/IoU, Hausdorff95, boundary F-score at multiple radii, and SDF calibration (RMSE, MAE, Eikonal error).
+
+2) Data preprocessing and SDF target generation
+- For each binary mask M (foreground=1, background=0):
+  - Compute unsigned distances: d_pos = distance_transform_edt(M==1), d_neg = distance_transform_edt(M==0).
+  - Signed distance target φ_gt = d_pos * (M==0) - d_neg * (M==1)  (or φ_gt = d_pos - d_neg).
+  - Optionally clamp φ_gt to [-R, R] with R chosen according to anatomy scale (e.g., 10–30 voxels for organ-level, smaller for small structures).
+  - Normalize φ_gt to [-1, 1] by dividing by R, or keep raw distances but use scaled output head.
+- For partial/weak labels: compute SDF only in annotated regions and mask loss accordingly; or generate pseudo-SDF via label propagation.
+
+3) Network architecture
+- Base encoder (U-Net or Scale-Aware Adaptive Supervised Network backbone).
+- Dual decoder heads:
+  - Segmentation head: per-voxel logits -> softmax / sigmoid.
+  - SDF head: single-channel scalar output φ_pred.
+- Implementation tips:
+  - SDF head final activation: scaled tanh (φ_pred = R * tanh(raw)) to bound outputs and stabilize regression.
+  - Use same encoder features for both heads; optionally add separate small decoder layers for each head.
+  - For better gradients near boundaries, add intermediate supervision at multiple scales (multi-scale SDF targets).
+
+4) Loss functions (mathematical formulas and rationale)
+- Segmentation loss:
+  - L_seg = DiceLoss(pred_mask, mask) and/or BCE/CE. Use Dice for imbalance (1 - Dice).
+- SDF regression loss:
+  - L_sdf = Huber(φ_pred, φ_gt) or SmoothL1; robust to outliers and large distances.
+  - If using normalized φ in [-1,1], Huber with δ~0.01--0.1.
+- Eikonal (unit-gradient) regularizer:
+  - L_eik = mean( (|∇φ_pred| - 1)^2 ) over image domain (encourages |∇φ|=1, characteristic of distance functions).
+  - Compute ∇ via central finite differences or Sobel conv kernels (differentiable).
+- Segmentation–regression consistency:
+  - Soft conversion of φ_pred to soft segmentation: s_from_phi = sigmoid( -φ_pred / τ )  (negative sign if φ>0 outside).
+    - τ controls softness (small τ -> sharper step). Use τ ~ 0.5 normalized units.
+  - Consistency loss between s_from_phi and segmentation probabilities p_seg:
+    - L_cons = BCE(s_from_phi, p_seg) or L2(p_seg, s_from_phi).
+  - Alternative (reverse): compute distance transform of predicted segmentation (d_pred_seg) using differentiable approximation (soft distance or convolutional approximations) and L_cons2 = MSE(φ_pred, d_pred_seg).
+- Boundary-aware focal/regressive term:
+  - Emphasize errors near zero-level set: weight SDF loss more near boundaries, e.g. w(x) = exp(-|φ_gt(x)|/σ): L_sdf_boundary = mean( w(x) * Huber(·) )
+- Shape priors & curvature:
+  - L_curv = mean(|κ(φ_pred)|) where curvature κ approximated from second derivatives (penalize extreme curvature to enforce smoother shapes).
+- Total loss:
+  - L_total = λ_seg L_seg + λ_sdf L_sdf + λ_cons L_cons + λ_eik L_eik + λ_curv L_curv
+  - Typical starting weights: λ_seg=1.0, λ_sdf=1.0, λ_cons=0.5, λ_eik=0.1, λ_curv=0.01. Tune by validation.
+
+5) Loss balancing strategies
+- Warm-up and ramping:
+  - Start training with segmentation-only for N_warm epochs (e.g., 5–10) to get reasonable masks, then enable SDF + consistency with linearly increasing weights over M epochs to avoid noisy gradients early.
+- Uncertainty weighting (Kendall et al.):
+  - Learn log-variance parameters s_i per loss: L_i / exp(s_i) + s_i, automatically balancing magnitude.
+- GradNorm:
+  - Normalize losses by gradient norms to ensure balanced multi-task training.
+- Empirical tuning:
+  - Monitor gradient magnitudes and validation metrics; adjust λ's if one loss dominates.
+
+6) Numerical stability and implementation details
+- Clamp or normalize SDF targets to [-R, R], and scale predictions similarly.
+- Use tanh output for bounded predictions: φ_pred = R * tanh(raw). This prevents huge magnitude outputs and stabilizes Eikonal.
+- For small τ in sigmoid conversion, limit to avoid vanishing gradients; use τ >= 0.1 (normalized).
+- When computing gradients ∇φ_pred, use convolutional finite-difference kernels (central differences with appropriate voxel spacing) to remain differentiable and efficient on GPUs.
+- Use mixed precision (AMP) to speed up training but be mindful of gradient clipping and Eikonal loss sensitivity.
+- Clip gradients (norm 1–5) and use weight decay (1e-5).
+- Use robust optimizer (AdamW) with lr ~1e-4 (2e-4 for 2D), reduce on plateau.
+
+7) Handling limited annotations
+- Maximize use of each annotated image by providing both segmentation and SDF supervision.
+- Use semi-supervised consistency: for unlabeled images, enforce segmentation–SDF self-consistency (predict φ and segmentation, use L_cons even without ground-truth φ).
+- Data augmentation: strong elastic and intensity augmentations to enforce invariance and produce robust SDF learning.
+- Pseudo-labeling: use high-confidence predicted masks to generate synthetic SDF targets for further training.
+- Curriculum: progressively incorporate harder unlabeled examples.
+
+8) Diagnostics and monitoring
+- Track segmentation metrics: Dice, IoU; boundary metrics: Hausdorff95, boundary F-score at 1/2/3 pixels/voxels.
+- Track SDF metrics: RMSE(φ_pred, φ_gt), MAE, percent of voxels with sign error, Eikonal error (mean(|∇φ_pred|-1|)).
+- Visual checks each epoch: overlay predicted zero-level contour on image and ground truth; error heatmaps of φ_pred - φ_gt; visualize predicted φ along normal lines to check monotonicity and sign correctness.
+- Check calibration: plot predicted φ distribution in foreground vs background, ensure zero-crossing aligns with boundary.
+
+9) Experiments and ablations
+- Datasets: choose one or more medical segmentation datasets under limited annotations (e.g., cardiac MRI, liver CT, prostate MRI) or use your particular dataset.
+- Baselines:
+  - Baseline segmentation-only model (no SDF).
+  - + SDF regression.
+  - + Segmentation–SDF consistency.
+  - + Eikonal regularizer.
+  - + curvature/shape prior.
+- Ablation study:
+  - Vary λ_sdf and λ_cons; test with/without bounding/clamping; test different τ.
+  - Compare loss balancing strategies (fixed weights vs uncertainty weighting vs GradNorm).
+  - Test different R (clamp distance) values and observe effect on boundary precision.
+- Evaluation:
+  - Use cross-validation or held-out test set.
+  - Report mean ± std for Dice, Hausdorff95, boundary F-scores at multiple radii, SDF RMSE, Eikonal error.
+  - Statistical tests (paired Wilcoxon) between baseline and proposed methods.
+- Expected outcomes:
+  - Improved boundary F-scores and reduced Hausdorff distances when SDF + consistency is used.
+  - Better-calibrated zero-level set and smoother, more geometrically plausible segmentations.
+
+10) Implementation sketch (PyTorch-style pointers)
+- SDF target computation: use scipy.ndimage.distance_transform_edt on CPU in preprocessing pipeline, store φ_gt arrays (clamped and normalized).
+- ∇φ implementation:
+  - Define sobel/kernel conv layers (no learnable weights) to compute axial derivatives; ensure proper spacing scaling.
+- Loss code snippets (pseudocode):
+  - φ_pred = R * torch.tanh(raw_pred)
+  - s_from_phi = torch.sigmoid(-φ_pred / τ)
+  - L_sdf = smooth_l1_loss(φ_pred * mask, φ_gt * mask, reduction='mean')  # mask handles partial labels
+  - L_eik = ((grad_x**2 + grad_y**2 + ...)**0.5 - 1.0).pow(2).mean()
+  - L_cons = bce_loss(s_from_phi, p_seg)
+- Training loop:
+  - Warm-up seg-only, then joint training with ramped λs.
+  - Save checkpoints on best validation Hausdorff95 / Dice.
+  - Use smaller batch sizes for 3D, accumulate gradients if necessary.
+
+11) Shape-consistency checks and advanced priors
+- Topology-aware constraints: use persistent homology or Euler number regularizers to preserve connected components (advanced).
+- Statistical shape priors: train an autoencoder on signed distance fields to learn a low-dim latent shape prior; penalize φ_pred distance from decoded shape prior.
+- Use curvature penalties to avoid spurious thin appendages.
+
+12) Post-processing and inference
+- Convert φ_pred to segmentation: seg_pred = φ_pred < 0 (or use s_from_phi threshold 0.5).
+- Optionally refine segmentation with level-set reinitialization or morphological operations.
+- For probabilistic outputs, combine segmentation probabilities and s_from_phi via learned fusion or conservative thresholds.
+
+13) Deliverables I will produce for you (as text/code/spec)
+- Detailed loss equations and justifications (already above).
+- PyTorch-style implementation snippets for SDF target generation, loss computations (L_sdf, L_eik, L_cons), gradient computations, and training loop pseudocode.
+- Suggested hyperparameter defaults and tuning ranges.
+- Experimental protocol, ablation plan, evaluation metrics and plotting recommendations.
+- Diagnostic checklist and plotting scripts to interpret failures.
+- Optionally, a reproducible config file template (YAML) specifying training regime and loss weights.
+
+Potential pitfalls and mitigations
+- Noisy SDF supervision from mislabeled masks: mitigate via robust loss (Huber), clamp distances, and prefiltering labels.
+- Inconsistent scales across datasets: choose R per dataset or normalize via organ size estimate.
+- Eikonal loss can conflict with segmentation if φ_pred magnitude is wrong: enforce bounded φ_pred and ramp Eikonal weight slowly.
+- Large computational cost for 3D Eikonal and ∇ computations: implement efficient convolutional derivatives, use mixed precision and gradient accumulation.
+
+Summary (concise)
+- Jointly learn segmentation + SDF with bounded SDF outputs, Huber regression, Eikonal regularizer, and segmentation–SDF consistency via a sigmoid conversion of SDF. Use warm-up training and dynamic loss-balancing (uncertainty weighting or GradNorm). Precompute and clamp SDF targets, use differentiable finite differences for gradient terms, and evaluate with boundary-sensitive metrics. Perform ablations to demonstrate boundary precision gains and SDF calibration. I can provide full code patterns, loss formulas, diagnostics, and experiment plans; I cannot run the experiments myself.
+
+Confidence recap
+- 9/10 for design, mathematical formulation, implementation guidance, and experimental planning grounded in literature and best practices.
+- 0/10 for running experiments or producing empirical training results on your data (you or your compute team will run the pipeline I provide).
+ Model Capabilities: Mathematical understanding of signed distance transforms and level-sets, numerical stability techniques, loss formulation and balancing, implementation in DL frameworks, shape prior modelling, evaluation of boundary metrics (Hausdorff, boundary F-score), and experience with regression–segmentation consistency approaches.
+-------------------------------------
+Model 2 :	Model Reasons: I will approach the task as the Geometric Consistency & Signed Distance Map Specialist with a focus on integrating SDF-based geometry-driven supervision into a scale-aware segmentation framework, especially under annotation scarcity. Here is my PLAN, methodology, and execution steps, followed by my confidence assessment and justification.
+
+Plan and strategy
+- Core objective: Design a jointly trained segmentation–regression model that uses signed distance maps (SDFs) to sharpen boundaries and enforce geometric consistency, while being robust to limited medical annotations and varying target scales.
+- Key idea: Use a shared encoder with two heads (segmentation and SDF regression) and introduce cross-head consistency and shape-prior regularizers to constrain predictions to geometrically plausible boundaries and scale-aware structures.
+- Handling limited annotations: leverage SDF supervision on annotated data, generate pseudo-SDF targets from segmentation predictions on unlabeled data, and impose consistency under data augmentations and scale variations. Employ uncertainty-driven or dynamic loss weighting to balance tasks and samples.
+- Scale awareness: incorporate multi-scale inputs and feature pyramids, scale-conditioned loss weighting, and a shape-regularizer that prefers scale-appropriate priors. This helps the model adapt to small vs large structures common in medical images.
+- Evaluation focus: boundary-centric metrics (Hausdorff, 95th percentile Hausdorff, boundary F-score, mean surface distance) plus Dice for overall overlap, and calibration metrics for SDF outputs.
+
+Methodology and execution steps
+1) Problem framing and data preparation
+- Define inputs/outputs: images (2D slices or 3D volumes), binary/multi-class segmentation masks, and corresponding ground-truth SDFs computed from masks (signed distance to the boundary, positive inside, negative outside, with a meaningful truncation distance).
+- For limited annotations: create a training split with labeled samples and an unlabeled pool. Prepare augmented variants to increase effective supervision.
+- Compute ground-truth SDFs only for annotated data; store SDFs using stable, clipped ranges to avoid numerical issues (e.g., clamp to [-D, D]).
+
+2) Model architecture
+- Shared encoder: a U-Net–like backbone (2D or 3D) to extract multi-scale features.
+- Segmentation head: standard Dice/BCE loss with boundary-enhanced components (e.g., boundary focal loss or edge-detection auxiliary task).
+- SDF head: regression head that outputs a per-voxel SDF value (signed distance to boundary). Optionally, implement a small differentiable SDF module if learning explicit distance fields.
+- Optional priors: a lightweight shape-prior module (e.g., a learned shape manifold or a PCA-based prior) to penalize implausible masks or SDF geometries.
+
+3) Loss design and training dynamics
+- Segmentation loss L_seg: Dice loss plus boundary-aware terms to emphasize edges.
+- SDF regression loss L_sdf: L1 or L2 loss between predicted SDF and ground-truth SDF where available; apply robust clipping to stabilize far-from-boundary predictions.
+- Consistency loss L_cons: enforce alignment between segmentation boundaries and SDF zero-crossings (e.g., a loss that penalizes misalignment between predicted boundary map and zero-crossing of the predicted SDF).
+- Gradient regularization: enforce |∇φ| ≈ 1 near the boundary (where φ is the predicted SDF) to enforce the intrinsic property of SDFs.
+- Scale-aware losses: modulate loss weights by structure size estimates or use a multi-task uncertainty weighting that adapts per scale/structure.
+- Regularizers for stability and priors: SDF smoothness penalty (e.g., total variation on the SDF), curvature regularization, and a shape-prior loss (distance to prior shape manifold or Chamfer distance to plausible shapes).
+- Training strategy under scarce labels:
+  - Supervised stage: train with labeled samples using L_seg, L_sdf, and L_cons.
+  - Semi-supervised stage: generate pseudo-SDF targets for unlabeled samples from current predictions or from a weakly supervised estimator; apply consistency losses across augmentations and between original and perturbed predictions.
+  - Curriculum or staged training: pretrain segmentation head, pretrain SDF head, then joint training with increasing emphasis on consistency and priors as annotated data grows.
+
+4) Numerical stability and implementation details
+- Ground-truth SDF computation: use robust, fast methods on annotated masks; clip values to a safe range to avoid extreme gradients.
+- SDF regression stability: initialize SDF head carefully, use small initial learning rates for SDF output, and apply gradient clipping if needed.
+- Loss balancing: use dynamic weights or uncertainty-based weighting to balance L_seg, L_sdf, L_cons, and regularizers; monitor gradient magnitudes to prevent domination by one term.
+- Differentiable distance handling: if using a differentiable SDF or a learned surrogate, ensure the layer remains stable under backpropagation; consider using a soft sign/approximately differentiable distance transform for smoother gradients.
+- Data handling: implement proper data normalization, consistent voxel spacing, and careful handling of 3D memory constraints if using 3D volumes.
+
+5) Scale-aware adaptation mechanisms
+- Multi-scale feature fusion: feature pyramids or Atrous/DeepLab-style modules to capture context at multiple scales; skip connections to preserve boundary details.
+- Scale-conditioned gates: gating mechanisms that adjust which features are most relevant at a given scale, improving robustness to small vs large structures.
+- Adaptive supervision: adjust target emphasis based on structure size; small structures get more boundary-focused supervision, large structures get more global shape guidance.
+- Efficient data augmentation: scale jitter, anisotropic scaling, rotation, elastic deformations designed to mimic realistic variability without destroying geometry.
+
+6) Evaluation plan and experiments
+- Baselines: segmentation-only network; segmentation + fixed SDF supervision with full data; existing regression–segmentation consistency methods (if available).
+- Ablations: remove SDF head, remove L_cons, disable shape priors, test without scale-aware components, test with/without semi-supervised losses.
+- Datasets and protocol: simulate limited annotations by restricting labeled samples; use standard metrics (Dice, Hausdorff 95, boundary F-score) and a dedicated SDF-calibration assessment (correlation between predicted SDF distances and true distances, reliability of boundary proximity).
+- Reproducibility: set seeds, document hyperparameters, report mean/variance across multiple runs.
+
+7) Execution timeline and deliverables
+- Phase 1: literature synthesis, define SDF targets, implement SDF head and losses, and set up baseline segmentation model.
+- Phase 2: integrate scale-aware modules, shape priors, and semi-supervised supervision. Develop training scripts with dynamic loss weighting.
+- Phase 3: run experiments, collect metrics, perform ablations, and analyze boundary precision and SDF calibration.
+- Phase 4: compile results, provide code snippets or modules, and prepare a concise methods + results narrative with practical guidance for replication.
+
+8) Potential risks and mitigation
+- Risk: SDF supervision scarce or noisy for small structures. Mitigation: rely more on consistency losses and priors, use pseudo-SDF with conservative confidence gating.
+- Risk: Numerical instability in SDF regression. Mitigation: clamp SDF values, apply gradient clipping, use robust losses, and gradual inclusion of the SDF head during training.
+- Risk: Scale mismatch across datasets. Mitigation: robust scale-aware modules, extensive data augmentation, and per-structure adaptive weighting.
+
+9) Deliverables and outputs
+- A modular codebase with: shared encoder, segmentation head, SDF head, loss modules (L_seg, L_sdf, L_cons, priors, stability terms), scale-aware components, semi-supervised supervision engine, and evaluation scripts.
+- Report detailing methodology, ablations, and recommended guidelines for using SDF-based geometry with limited annotations.
+- Figures: boundary sharpening visualizations, SDF maps, and metric tables showing improvements over baselines.
+
+Confidence and justification
+- Confidence level: high (8/10).
+- Justification: plan combines well-established components (segmentation–regression multitask setups, SDF-based geometry supervision, and scale-aware architectures) with pragmatic handling of annotation scarcity through semi-supervised and consistency-based strategies. I outline concrete loss formulations, stability considerations, and a clear experimental plan with ablations to validate each component. While medical imaging variability and dataset-specific quirks can introduce unforeseen challenges, the approach is grounded in principled geometric supervision and adaptable to a range of modalities and annotation regimes. If given access to data characteristics (e.g., 2D vs 3D, target organs/structures, annotation density), I would tailor the scale-aware gates, priors, and augmentation strategies to maximize performance and stability.
+ Model Capabilities: Mathematical understanding of signed distance transforms and level-sets, numerical stability techniques, loss formulation and balancing, implementation in DL frameworks, shape prior modelling, evaluation of boundary metrics (Hausdorff, boundary F-score), and experience with regression–segmentation consistency approaches.
+-------------------------------------
+Model 3 :	Model Reasons: As the Geometric Consistency & Signed Distance Map Specialist, my plan to design and integrate segmentation–regression consistency mechanisms for the research topic "Scale-Aware Adaptive Supervised Network with Limited Medical Annotations" involves the following strategy and methodology:
+
+1. Problem Understanding and Requirements Analysis:
+   - Thoroughly analyze the characteristics of the limited medical annotations and the challenges posed by scale variations in the target structures.
+   - Identify the segmentation tasks where geometric consistency and boundary precision are critical.
+
+2. Signed Distance Map (SDM) Computation and Regression Target Design:
+   - Compute accurate signed distance transforms from available annotations, using robust level-set based methods to handle annotation scarcity.
+   - Define regression targets with normalized signed distances to ensure scale invariance and numerical stability during training.
+
+3. Loss Formulation and Balancing:
+   - Formulate segmentation–regression consistency losses that couple traditional segmentation losses (e.g., Dice, cross-entropy) with SDM regression losses.
+   - Introduce boundary-aware loss components that emphasize regions close to object boundaries to sharpen edges.
+   - Incorporate geometric regularizers and shape priors to enforce plausible shapes and smooth signed distance fields.
+   - Carefully balance losses using dynamic weighting schemes or uncertainty-based weighting to ensure stable optimization and prevent domination of any particular loss term.
+
+4. Numerical Stability Techniques:
+   - Implement normalization and clamping strategies for signed distances to prevent gradient explosion or vanishing.
+   - Utilize mixed precision training and gradient clipping as needed.
+
+5. Integration with Scale-Aware Adaptive Supervised Network:
+   - Embed the SDM regression branch within the multi-scale architecture, ensuring scale-adaptive signed distance targets and loss components.
+   - Design feature-level consistency checks between segmentation predictions and SDF regression outputs.
+
+6. Shape-Consistency Checks and Regularization:
+   - Implement geometric consistency constraints that penalize discrepancies between predicted segmentation contours and zero-level sets from the SDF regression.
+   - Use shape prior models learned from available data or public shape databases to regularize predictions.
+
+7. Experimentation and Evaluation:
+   - Run extensive experiments on benchmark medical datasets with limited annotations.
+   - Evaluate performance gains in boundary precision using metrics such as Hausdorff Distance, average surface distance, and boundary F-score.
+   - Analyze the calibration quality of SDF outputs and stability of regression training.
+
+8. Documentation and Expert Discussion:
+   - Prepare detailed reports of methodology, experimental results, and ablation studies.
+   - Engage in expert-level discussions to validate findings and propose further improvements.
+
+Confidence Level:
+I am highly confident in delivering a high-quality result for this task. My expertise in level-set theory, signed distance transform computation, and regression-consistency losses provides a strong theoretical foundation. Additionally, my experience with numerical stability techniques and implementing boundary-aware losses in deep learning frameworks ensures practical and stable integration of the proposed methods. The strategy outlined balances mathematical rigor with applicability to real-world medical imaging challenges, which boosts my confidence in producing meaningful advancements in segmentation quality under annotation scarcity.
+
+"
+ Model Capabilities: Mathematical understanding of signed distance transforms and level-sets, numerical stability techniques, loss formulation and balancing, implementation in DL frameworks, shape prior modelling, evaluation of boundary metrics (Hausdorff, boundary F-score), and experience with regression–segmentation consistency approaches.
+-------------------------------------
+
+  Return the output in STRICT JSON FORMAT (JSON ONLY):
+  {{
+    "Model": "Number of the model which is most suitable for the agent based on the previously described agent description. return only a single INTEGER digit."
+    "Reasoning": "Reasoning behind your selection"
+  }}
+
+Agent Information: {'name': 'Geometric Consistency & Signed Distance Map Specialist', 'expertise': 'Level-set theory, signed distance transform computation, regression-consistency losses, boundary-aware segmentation, and shape priors for medical structures.', 'Goal': 'Design and integrate segmentation–regression consistency mechanisms using signed distance maps to sharpen boundaries and produce geometrically consistent segmentations under annotation scarcity.', 'Role': 'Formulate and implement SDF-based losses, ensure stable SDF regression training (loss balancing, numerical stability), design geometric regularizers and shape-consistency checks, and run experiments showing improved boundary precision and calibrated SDF outputs.', 'required_capabilities': 'Mathematical understanding of signed distance transforms and level-sets, numerical stability techniques, loss formulation and balancing, implementation in DL frameworks, shape prior modelling, evaluation of boundary metrics (Hausdorff, boundary F-score), and experience with regression–segmentation consistency approaches.'}
+Selected Model: gpt-5-mini
+Reasoning: 
+------------------------------
+ Selection Reasoning:
+Model 1 is the best match for the Geometric Consistency & Signed Distance Map Specialist role because it provides the most complete and technically grounded plan for SDF-based segmentation–regression consistency. It explicitly covers mathematically robust SDF target construction, bounded SDF prediction, Huber/SmoothL1 regression, Eikonal regularization, segmentation–SDF consistency losses, numerical stability measures, loss balancing, boundary-focused evaluation metrics, and a concrete PyTorch-style implementation strategy. Compared with Models 2 and 3, Model 1 is substantially more detailed, more implementation-ready, and better aligned with the agent’s core responsibilities of designing stable SDF losses, ensuring geometric consistency, and evaluating boundary precision under annotation scarcity.

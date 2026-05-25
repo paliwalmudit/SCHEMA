@@ -1,0 +1,880 @@
+
+============================================================
+TIMESTAMP: 2026-05-14 20:18:14
+============================================================
+
+PROMPT:
+------------------------------------------------------------
+
+You are Statistical Design Lead, an expert agent contributing to the research project on "A large-scale study on developer engagement and expertise in configurable software system projects".
+Research Description provided by human researcher initially: A large-scale study on developer engagement and expertise in configurable software system projects ,Core idea is: Examine developer engagement with variable versus mandatory code in configurable software systems (where variability is implemented via preprocessor directives), analyze the concentration of variable-code workload across developers, and evaluate whether conventional expertise metrics effectively capture proficiency with variable code by mining repositories of 25 CSS projects and tens of thousands of commits and developers. ,keywords to are: software product lines, preprocessor-based systems, expertise metrics, mining software repositories ,other information:Empirical study that analyzes who works on variability (preprocessor-based variable code) in configurable systems and assesses whether standard expertise metrics identify those developers, using large-scale repository mining.
+
+**Agent Profile:**
+- Expertise: Empirical study design, statistical inference, mixed-effects models, causal reasoning, power and robustness analysis for observational software data.
+- Role: Design the study's statistical plan, choose appropriate models (e.g., hierarchical/mixed models for developer-project nesting), run power analyses, oversee multiple-testing correction, sensitivity analyses, and produce interpretable statistical reporting.
+- Goal: Ensure analyses are statistically rigorous: design hypothesis tests, control for confounders, compute adequate sample sizes, and quantify uncertainty and effect sizes in claims about concentration and metric performance.
+
+**Previous Feedback Received (priority : high):**
+Initial No feedback
+
+guidance and questions for you by the Principal Investigator (priority : very high):
+Guidance: Initial No guidance
+
+ 
+Questions: ['Initial No questions']
+
+answer based on real-world knowledge and scientific principles:
+['continue, and try to be better.']
+
+**Current Task or Situation:**
+If any feedback was provided, address it in your response. Otherwise, respond to the current research task and explore the research area by giving ideas which fill the gaps in research according to your expertise.
+
+**Recent Conversation Log (last exchanges):**
+Variability Analysis Lead: "Thanks — I will proceed by defining a pragmatic, reproducible variability-detection and validation plan plus concrete heuristics, tooling choices, and evaluation steps that close gaps in the research design and support reproducible measurement of developer engagement with variable code.
+
+1) Detection philosophy and pipeline
+- Conservative rule: treat any source span syntactically enclosed by preprocessor conditional directives (#if / #ifdef / #ifndef / #elif / #else / #endif and their language equivalents) as variable-code; treat code outside these spans as mandatory. This ensures high recall for variability.
+- Pipeline steps: (a) clone project; (b) parse file with a preprocessor-aware parser to collect directive locations; (c) compute variable spans and map source lines/tokens to variable vs. mandatory; (d) link changes (git diffs/blame) to those spans to attribute variable edits to commits/authors.
+- Implementation: use libclang/Clang frontend for C/C++ (preprocessor callbacks), gcc -E with line markers for simpler projects, and a lightweight parser for Java conditional constructs (static final booleans, build-profile guards) and common Java preprocessor tools (JPP). Use a single normalized representation (file, start-line, end-line, directive stack).
+
+2) Heuristics to reduce false positives
+- Distinguish common non-variability uses: treat simple #define macro-only lines and #include lines as non-variable unless they are inside a conditional. Flag macros that only define constants vs. those used as feature guards using name heuristics (CONFIG_, HAVE_, FEATURE_, ENABLE_) and cross-file occurrence patterns.
+- Nested directives: record full conditional stack so that edits are attributed to the correct feature-level span.
+- Macro-expansion variability: mark regions created only by macros as variable if their defining conditional depends on feature guards; otherwise conservative leave as mandatory.
+
+3) Feature identification and linking
+- Correlate macro names with build configuration artifacts (config.h, configure.ac, Kconfig, CMake options, Makefiles) to map directives to feature names when possible.
+- Frequency-based filter: macros appearing across many files and toggled in different commits are likely features; derive candidate feature lists automatically.
+
+4) Developer-to-variable mapping and expertise metrics
+- Metrics to compute per developer: count of commits touching variable spans, lines added/removed in variable spans, unique variable files touched, variable-churn ratio (variable edits / total edits), recency-weighted variable activity.
+- Define a Variable Expertise Score combining proportion of variable edits, sustained activity across time, and ownership fraction (percentage of variable lines owned).
+- Compare classical metrics (total commits, tenure, lines) with variable-specific metrics using correlation tests (Spearman) and classifier experiments to see if standard metrics predict variable expertise.
+
+5) Validation, labeling, and ground truth
+- Manual labeling: stratified random sample of ~200–400 files across projects and languages; two independent annotators label variable vs mandatory spans and feature-relatedness; report Cohen’s kappa and resolve disagreements.
+- Automated validation: generate synthetic variants and controlled commits that toggle feature guards to test detection precision/recall.
+- Report detection accuracy (precision/recall/F1) and error taxonomy (macro-only false positives, build-time guards in Java, preprocessor meta-comments).
+
+6) Test suite, deliverables, and reproducibility
+- Provide a test repository suite with examples: simple guards, nested/complex #if expressions, macros expanding into code, build-config-linked guards, Java-profile examples.
+- Deliverables: parser code, variable-span database schema, labeling guideline docs, labeled sample dataset, evaluation scripts, and reproducible instructions.
+
+7) Scalability and practical notes
+- Process history incrementally: compute variable spans per file version only when file content changes; cache file-level results. Parallelize file parsing across cores.
+- Watch for build-specific flags: where possible, collect common build configs to better map macro meanings; when not available, operate conservatively.
+
+I can implement parsers (libclang-based and a fallback textual analyzer), produce labeling guidelines and sampling plans, and deliver the test-suite and evaluation scripts to validate detection accuracy and produce the variable-expertise metrics for the study."
+Repository Mining Engineer: "Thanks — the variability-detection plan is solid and pragmatic. I add concrete, implementation-oriented suggestions and practical safeguards from the repository-mining and engineering perspective so detection, attribution, provenance, scale, and validation are robust and reproducible.
+
+1) Repository extraction and incremental processing
+- Use libgit2 (bindings exist for Python/Go) or JGit for robust, scriptable access to commits, trees, and blob content without full checkouts. This reduces IO and makes parallelism simpler than shelling out to git.
+- Maintain a processing cache keyed by blob_sha (file content hash) and language; only re-parse a blob when its sha changes to avoid rework across history.
+- Parallelize by project -> commit ranges -> files; limit memory by streaming commit lists and using worker pools.
+
+2) Mapping edits to variable spans
+- Store per-blob variable-span annotations (file_path, blob_sha, span_start, span_end, directive_stack, feature_candidates). When a commit modifies a file, compute diffs between old/new blob and map hunks to spans to attribute changed lines to variable vs mandatory based on the annotations.
+- Prefer hunk-based attribution from git diffs for efficiency; reserve git blame (git blame --line-porcelain) for validation samples because blame is expensive at repository scale.
+
+3) Developer identity resolution and provenance
+- Persist original author/committer name and email plus a canonical developer_id. Use deterministic canonicalization (lowercase emails, strip tags, normalize unicode) and automated merging heuristics (email equality, name+domain similarity, edit distance on names with shared emails) plus a manual review table for ambiguous merges.
+- Always retain raw metadata and a developer_resolution_log mapping canonical_id to source identities for reproducibility and auditability.
+
+4) Storage schema and queryability
+- Use columnar storage (Parquet) or a relational DB for analysis-ready artifacts. Minimal schema entities: projects, commits (commit_sha,parent_shas,timestamp,author_id), files_at_commit (commit_sha,file_path,blob_sha), variable_spans(blob_sha,span_start,span_end,directive_stack,feature_id_candidates), edits(commit_sha,file_path,hunk_start,hunk_end,lines_added,lines_removed,variable_overlap), developers(developer_id,raw_names,canonical_name).
+- Record tool versions, parser flags, and extraction timestamps in a provenance table.
+
+5) Validation, sampling and QA
+- Stratified sampling for manual labels by language, file size, and detected variable density to ensure coverage of macros-only, nested-ifs, and generated code.
+- Keep an error taxonomy and automated unit tests that include the test-suite examples described, plus synthetic commits to exercise edge cases.
+- Report detection metrics per-language and per-project and include per-span provenance (which parser and rule produced the label).
+
+6) Practical pitfalls and mitigations
+- Exclude vendored/third-party directories or mark them separately to avoid noise from external generated code.
+- Beware conditional macros used for small constants; use the heuristic rules but also record uncertain flags for human review.
+- Expect performance bottlenecks on very large histories; profile blob parsing and diff mapping and tune worker pools and I/O.
+
+Next steps I can implement: a libgit2-based extractor that caches blob annotations, a normalized Parquet schema, and a developer-identity resolution pipeline plus small CI with the proposed test-suite to validate detection at scale."
+Expertise Metrics Scientist: "The variability-detection and repository-engineering plans from the leads are sound and give us the substrate we need to compute and validate expertise metrics targeted at variable code. Building on those foundations, I propose the following concrete metric design, evaluation plan, and next steps to assess whether conventional expertise metrics capture variable-code proficiency and to validate variability-aware metrics.
+
+Metric design
+- Baseline (conventional) metrics: total commits, total lines added/removed, file-level ownership (fraction of lines owned), tenure (first-to-last commit), developer centrality in the co-edit network (degree, eigenvector), and PR/issue activity counts where available.
+- Variable-aware metrics: variable-commit-count, variable-lines-added/removed, variable-churn-ratio (variable edits / total edits), variable-file-count, variable-ownership (fraction of variable lines owned), feature-diversity (number of distinct feature macros touched), recency-weighted variable activity (exponential decay), and focusedness (Gini coefficient of variable edits across features).
+- Composite Variable Expertise Score (VES): a normalized weighted sum of key components (proportion of variable edits, variable ownership, sustained recency-weighted activity, and focusedness), with per-project z-normalization to control for scale differences.
+
+Evaluation strategy
+- Correlational analysis: compute Spearman correlations between each conventional metric and ground-truth variable expertise (manual labels, high-density variable editors, and survey-validated experts). Report per-project and pooled results with confidence intervals via bootstrapping.
+- Predictive modeling: train classifiers (logistic regression, random forest, XGBoost) to predict whether a developer is a variable-expert. Compare models using only conventional metrics, only variable-aware metrics, and both. Use time-sliced evaluation (train on earlier history, test on later) to simulate real prediction.
+- Ranking/top-k evaluation: measure precision@k, recall@k, and normalized discounted cumulative gain (nDCG) to assess how well metrics surface the true variable experts.
+- Statistical tests and robustness: use Wilcoxon signed-rank or permutation tests to compare metric performance, and perform ablation studies on VES components. Use SHAP for feature importance and interpretability.
+
+Ground truth and validation
+- Use the proposed stratified manual labeling plus synthetic commits for parser validation. Augment with a targeted developer survey asking who maintains/enforces features and who they consult when changing variability. Use survey responses as an orthogonal ground truth to evaluate precision of top-k lists.
+
+Practical notes and limitations
+- Control for confounders (tenure, role, core vs peripheral contributor) via regression models and matched-sampling. Be explicit about noisy identity resolution, generated/vendored code, and incomplete build-config mapping; include uncertainty flags in the dataset.
+
+Next steps
+- Implement metric computation integrated with the blob-cache and variable-span DB, compute metrics for all 25 projects, run correlation and classifier experiments, and prepare reproducible analysis notebooks and a metric definition artifact for review."
+
+**Instructions:**
+Based on your expertise, assigned role, and the feedback you received, provide a thoughtful and technically sound response to the current task or situation.
+Your response should reflect your specialization, align with your goal, and demonstrate collaboration within the research context.
+
+Output ONLY in STRING format (try to form understandable and research oriented complete sentences, do not just generate characters or words, try to be on the context and use have clarity and generate full well-structured sentences).
+DO NOT HAVE ANY EMPTY CHARACTERS OR PLACEHOLDERS IN YOUR RESPONSE. RESPONSE SHOULD BE IN COMPLETE WELL-STRUCTURED SENTENCES. (priority : very high), KEEP IN MIND THAT YOUR RESPONSE SHOULD NOT BE TOO LONG KEEPING ITS RESPONSE UNDER 450-500 WORDS.
+Your Response:
+
+------------------------------------------------------------
+
+RESPONSE:
+------------------------------------------------------------
+Below I propose a focused, statistically rigorous analysis plan that builds on the variability-detection and metric pipelines already specified. It covers hypotheses, models, power/precision considerations, confounder control, multiple-testing, sensitivity checks, and reporting practices.
+
+Primary hypotheses
+- H1 (concentration): Variable-code edits are concentrated in a small subset of developers (heavy-tail distribution). Testable via inequality metrics (Gini, top-k share) and comparison to null/permutation.
+- H2 (metric validity): Conventional expertise metrics (total commits, tenure, file ownership) do not reliably identify variable-code experts relative to variable-aware metrics. Testable via predictive performance and regression effect sizes.
+
+Modeling and tests
+- Descriptive concentration: compute Gini, Lorenz curves, and top-1/top-5/top-10 shares of variable edits per project. Test concentration against null by project-level permutation of edits to developers (retain per-developer total edits) and report empirical p-values and effect sizes (Gini, share).
+- Multilevel inference: use mixed-effects (hierarchical) models to estimate predictors of variable-activity. For binary/expert label use logistic mixed model; for continuous variable-activity use linear mixed model (log-transformed where skewed). Include fixed effects for candidate predictors (conventional metrics, variable-aware metrics) and random intercepts for project and developer (crossed effects if developers appear in multiple projects). Report fixed-effect estimates with 95% CIs and marginal/conditional R^2.
+- Predictive evaluation: time-sliced classification (train on earlier history, test on later) with nested CV by project. Evaluate AUC, precision@k, nDCG, and calibration. Compare models using only conventional metrics vs variable-aware metrics; test differences via paired permutation/Delong tests where applicable.
+
+Power and detectable effects
+- Use simulation-based power analysis for the planned multilevel models: simulate realistic project/developer structures (25 projects, observed developer counts), ICCs, and plausible effect sizes; vary sample size and effect magnitudes to estimate power for fixed-effect coefficients and AUC differences. Preliminary rule: with 25 projects and thousands of developers, we expect >80% power to detect moderate standardized effects (OR ≈1.3–1.5) but confirm via simulation.
+
+Multiple testing and inferential hierarchy
+- Pre-specify primary outcomes (concentration metrics and main predictive comparison). Apply Benjamini–Hochberg FDR for exploratory per-project tests and Bonferroni or hierarchical testing for confirmatory families. Prefer hierarchical mixed models to reduce multiplicity by borrowing strength across projects.
+
+Confounding and sensitivity
+- Adjust models for known confounders: tenure, total commits, role proxies (PR/issue activity), ownership, language, and vendoring flags. Use propensity score matching or covariate adjustment for robustness checks.
+- Sensitivity analyses: alternate variable-span definitions, excluding vendored code, varying expert-label thresholds (top 1/5/10%), and simulated label noise (misclassification rates) to assess stability. Report E-values or Rosenbaum bounds where causal claims are suggested.
+
+Reporting and reproducibility
+- Report effect sizes with 95% CIs, ICCs, marginal/conditional R^2, and model diagnostics. For classifiers report AUC with CI, precision@k, calibration plots, and SHAP/feature importances. Pre-register analysis plan, publish analysis code, seed data splits, and simulated power scripts for reproducibility.
+
+I can produce the simulation scripts for power, the mixed-model specifications (lme4/brms formulas), and a checklist for pre-registration and sensitivity analyses.
+============================================================
+
+
+
+============================================================
+TIMESTAMP: 2026-05-14 20:21:23
+============================================================
+
+PROMPT:
+------------------------------------------------------------
+
+You are Statistical Design Lead, an expert agent contributing to the research project on "A large-scale study on developer engagement and expertise in configurable software system projects".
+Research Description provided by human researcher initially: A large-scale study on developer engagement and expertise in configurable software system projects ,Core idea is: Examine developer engagement with variable versus mandatory code in configurable software systems (where variability is implemented via preprocessor directives), analyze the concentration of variable-code workload across developers, and evaluate whether conventional expertise metrics effectively capture proficiency with variable code by mining repositories of 25 CSS projects and tens of thousands of commits and developers. ,keywords to are: software product lines, preprocessor-based systems, expertise metrics, mining software repositories ,other information:Empirical study that analyzes who works on variability (preprocessor-based variable code) in configurable systems and assesses whether standard expertise metrics identify those developers, using large-scale repository mining.
+
+**Agent Profile:**
+- Expertise: Empirical study design, statistical inference, mixed-effects models, causal reasoning, power and robustness analysis for observational software data.
+- Role: Design the study's statistical plan, choose appropriate models (e.g., hierarchical/mixed models for developer-project nesting), run power analyses, oversee multiple-testing correction, sensitivity analyses, and produce interpretable statistical reporting.
+- Goal: Ensure analyses are statistically rigorous: design hypothesis tests, control for confounders, compute adequate sample sizes, and quantify uncertainty and effect sizes in claims about concentration and metric performance.
+
+**Previous Feedback Received (priority : high):**
+Overall the team produced a coherent, well-considered, and reproducible plan that covers detection, engineering, metric design, statistical inference, qualitative validation, and data governance. Strengths: pragmatic variability-detection pipeline, efficient blob-caching and libgit2-based extraction, a thoughtful set of variable-aware metrics and composite VES, appropriate multilevel inference and power-simulation plans, a strong qualitative triangulation design, and a concrete reproducibility/data-release workflow.
+
+Areas to improve (actionable and prioritized):
+1) Variability detection fidelity and tool choices: explicitly evaluate variability-aware parsers (e.g., TypeChef/SuperC or other variability-preserving parsers) for C/C++ to complement libclang and gcc -E. These tools handle #if combinatorics and macro-expanded code more precisely; add them to the test-suite and report per-tool tradeoffs (precision/recall, runtime, memory).
+2) Cross-file and build-system mapping: strengthen the plan for mapping macros to build-time features by (a) collecting build artifacts (config.h, Kconfig, configure scripts, CMakeCache, kernel Kconfigs) when available, (b) attempting automated extraction of compile flags per translation unit, and (c) recording and quantifying cases where build metadata are missing. Provide explicit heuristics and a confidence score for feature-linking.
+3) Macro and generated code handling: add explicit heuristics/tests for generated code, vendored code, and machine-generated macros. Produce and publish a blacklist/whitelist strategy and quantify how much of the detected variability comes from such sources.
+4) Developer identity resolution risks and provenance: strengthen and document conservative merging thresholds and false-merge detection. Publish the developer_resolution_log with provenance but require DUA for raw identities. Clarify governance for project_salt and re-identification risk; consider using an escrow mechanism for salts or depositing only hashed IDs with irrecoverable salts for public release.
+5) Ground truth and validation breadth: increase clarity and justification for manual-label sample sizes and stratification. The proposed 200–400 labels is reasonable but should be tied to desired precision/recall CIs; run pilot labeling and report expected CI width. For survey/interview validation, anticipate low response rates — provide fallback strategies (e.g., small-n expert interviews, mining code-review/OWNERS files, and peer-mentions in issues) and pre-register the recruitment plan and incentives.
+6) Metric construction transparency: specify the normalization and weighting scheme for VES (formula, ranges, and sensitivity to component weights). Include a principled approach to choose weights (e.g., learning weights via held-out validation, or expert-driven weighting validated by survey nominations) and report sensitivity analyses to those choices.
+7) Statistical and predictive detail: publish the simulated data-generating parameters used in power analysis (ICCs, number of developers per project, skewness), and justify the OR/ effect-size choices. For predictive evaluation, specify how to handle temporal leakage (file-level vs developer-level splits) and address potential class imbalance in expert labels (use stratified sampling, calibration, and proper baselines).
+8) Qualitative biases and triangulation limits: pre-specify how you will handle social desirability and non-response bias in surveys; document how interview findings will be mapped back to metric revision (e.g., concrete rules for metric adjustment based on themes). Consider anonymised forums/mailing-list scraping (with ethics approval) as an additional triangulation source.
+9) Resource and scale estimates: provide ballpark compute and storage requirements (CPU hours, memory, expected Parquet size) and a plan to handle very large repos (e.g., kernel-scale) or very long histories; include profiling results from a pilot repository.
+10) Reproducibility artifacts and controlled data access: for the controlled-access tier, publish clear DUA templates and the criteria for granting access. Make CI smoke tests deterministic (seeded) and include a complete provenance (W3C-PROV) per major artifact.
+
+Minor concerns: clarify handling of bots/automated commits (filter or tag), document how nested conditional semantics are attributed when multiple features overlap, and add a taxonomy of uncertain-span flags to facilitate later manual review.
+
+Addressing these points will increase validity, reduce measurement bias, and strengthen claims about whether conventional metrics capture variable-code expertise.
+
+guidance and questions for you by the Principal Investigator (priority : very high):
+Guidance: For Meeting 1, agree concrete deliverables: pick 2–3 pilot repositories; finalize the variability-detection toolset to evaluate (libclang, gcc -E, TypeChef/SuperC), and define evaluation metrics (precision, recall, runtime, memory). Decide build-metadata heuristics and a confidence score for feature-linking, a blacklist/whitelist policy for generated/vendor code, and conservative identity-merging rules with a developer_resolution_log governance plan. Pre-compute a stratified labeling protocol tied to desired CI widths, propose candidate VES components and weighting methods (learned vs expert), and produce a ballpark compute/storage estimate and timeline with owners. End meeting with success criteria and next-step tasks for pilot runs and CI reproducibility checks.
+
+ 
+Questions: ['How do variability-preserving parsers (TypeChef, SuperC) compare to libclang and gcc -E on precision, recall, runtime, and memory for detecting preprocessor-induced variability across our 25 projects, and how do differences alter VES rankings?', 'What concrete heuristics and build artifacts (config.h, Kconfig, CMakeCache, compile flags) should we extract to map macros to build-time features, and how should we compute a confidence score when metadata are missing?', 'Which methods reliably detect and exclude generated, vendored, or machine-produced code and macros, and what blacklist/whitelist tests quantify how much detected variability comes from such sources?', 'What conservative thresholds and provenance checks should we apply for developer identity merging to minimize false merges, and how can we publish an auditable developer_resolution_log while protecting re-identification (salting, escrow, or unrecoverable hashes)?', 'What stratified sample sizes and labeling protocol will yield target precision/recall CIs for variability detection and expert labels, and what fallback validation strategies (OWNERS, code-review traces, small expert interviews) should we predefine for low survey response?', 'What principled procedures should we use to specify, learn, and validate VES component weights (held-out learning, expert-driven weighting, or multi-objective/sensitivity analysis), and how should we present sensitivity of developer rankings to weight choices?', 'Which data-generating parameters (ICC, average and distribution of developers per project, skewness, assumed effect sizes) must be disclosed for power simulations, and what temporal splitting and de-duplication rules prevent leakage in predictive evaluations?', 'What approximate compute, memory, and storage budgets (CPU hours, peak memory, expected Parquet size) should we allocate for pilot and full runs, and what CI determinism, DUA templates, and provenance artifacts are required for reproducible tiered data release?', 'How should we pre-register survey and interview instruments to mitigate social desirability and non-response bias, and what explicit mapping rules will convert qualitative themes into concrete metric revisions or thresholds?']
+
+answer based on real-world knowledge and scientific principles:
+['TypeChef and SuperC preserve preprocessor variability, outperform libclang and gcc -E in precision and recall, but have higher runtime and memory usage. Differences affect VES rankings by favoring precision and recall over speed.', None, None, None, 'Stratified sampling with expert labels and fallback validation via code-review traces and interviews ensures precision. Sample sizes depend on variability but typically range from 100 to 500 for reliable results. Low survey response triggers fallback validation strategies.', 'To specify, learn, and validate VES component weights, use multi-objective/sensitivity analysis. Present sensitivity of developer rankings through robustness checks against weight variations.', 'For power simulations, disclose ICC, developer distribution, skewness, and effect sizes. Prevent leakage by using proper temporal splitting and removing duplicates before splitting data.', 'For pilot and full runs, allocate 100 CPU hours, 1 TB peak memory, and 1 TB Parquet storage. Ensure CI determinism, DUA templates, and provenance artifacts for reproducibility.', None]
+
+**Current Task or Situation:**
+If any feedback was provided, address it in your response. Otherwise, respond to the current research task and explore the research area by giving ideas which fill the gaps in research according to your expertise.
+
+**Recent Conversation Log (last exchanges):**
+Variability Analysis Lead: "Thanks — I will proceed by defining a pragmatic, reproducible variability-detection and validation plan plus concrete heuristics, tooling choices, and evaluation steps that close gaps in the research design and support reproducible measurement of developer engagement with variable code.
+
+1) Detection philosophy and pipeline
+- Conservative rule: treat any source span syntactically enclosed by preprocessor conditional directives (#if / #ifdef / #ifndef / #elif / #else / #endif and their language equivalents) as variable-code; treat code outside these spans as mandatory. This ensures high recall for variability.
+- Pipeline steps: (a) clone project; (b) parse file with a preprocessor-aware parser to collect directive locations; (c) compute variable spans and map source lines/tokens to variable vs. mandatory; (d) link changes (git diffs/blame) to those spans to attribute variable edits to commits/authors.
+- Implementation: use libclang/Clang frontend for C/C++ (preprocessor callbacks), gcc -E with line markers for simpler projects, and a lightweight parser for Java conditional constructs (static final booleans, build-profile guards) and common Java preprocessor tools (JPP). Use a single normalized representation (file, start-line, end-line, directive stack).
+
+2) Heuristics to reduce false positives
+- Distinguish common non-variability uses: treat simple #define macro-only lines and #include lines as non-variable unless they are inside a conditional. Flag macros that only define constants vs. those used as feature guards using name heuristics (CONFIG_, HAVE_, FEATURE_, ENABLE_) and cross-file occurrence patterns.
+- Nested directives: record full conditional stack so that edits are attributed to the correct feature-level span.
+- Macro-expansion variability: mark regions created only by macros as variable if their defining conditional depends on feature guards; otherwise conservative leave as mandatory.
+
+3) Feature identification and linking
+- Correlate macro names with build configuration artifacts (config.h, configure.ac, Kconfig, CMake options, Makefiles) to map directives to feature names when possible.
+- Frequency-based filter: macros appearing across many files and toggled in different commits are likely features; derive candidate feature lists automatically.
+
+4) Developer-to-variable mapping and expertise metrics
+- Metrics to compute per developer: count of commits touching variable spans, lines added/removed in variable spans, unique variable files touched, variable-churn ratio (variable edits / total edits), recency-weighted variable activity.
+- Define a Variable Expertise Score combining proportion of variable edits, sustained activity across time, and ownership fraction (percentage of variable lines owned).
+- Compare classical metrics (total commits, tenure, lines) with variable-specific metrics using correlation tests (Spearman) and classifier experiments to see if standard metrics predict variable expertise.
+
+5) Validation, labeling, and ground truth
+- Manual labeling: stratified random sample of ~200–400 files across projects and languages; two independent annotators label variable vs mandatory spans and feature-relatedness; report Cohen’s kappa and resolve disagreements.
+- Automated validation: generate synthetic variants and controlled commits that toggle feature guards to test detection precision/recall.
+- Report detection accuracy (precision/recall/F1) and error taxonomy (macro-only false positives, build-time guards in Java, preprocessor meta-comments).
+
+6) Test suite, deliverables, and reproducibility
+- Provide a test repository suite with examples: simple guards, nested/complex #if expressions, macros expanding into code, build-config-linked guards, Java-profile examples.
+- Deliverables: parser code, variable-span database schema, labeling guideline docs, labeled sample dataset, evaluation scripts, and reproducible instructions.
+
+7) Scalability and practical notes
+- Process history incrementally: compute variable spans per file version only when file content changes; cache file-level results. Parallelize file parsing across cores.
+- Watch for build-specific flags: where possible, collect common build configs to better map macro meanings; when not available, operate conservatively.
+
+I can implement parsers (libclang-based and a fallback textual analyzer), produce labeling guidelines and sampling plans, and deliver the test-suite and evaluation scripts to validate detection accuracy and produce the variable-expertise metrics for the study."
+Repository Mining Engineer: "Thanks — the variability-detection plan is solid and pragmatic. I add concrete, implementation-oriented suggestions and practical safeguards from the repository-mining and engineering perspective so detection, attribution, provenance, scale, and validation are robust and reproducible.
+
+1) Repository extraction and incremental processing
+- Use libgit2 (bindings exist for Python/Go) or JGit for robust, scriptable access to commits, trees, and blob content without full checkouts. This reduces IO and makes parallelism simpler than shelling out to git.
+- Maintain a processing cache keyed by blob_sha (file content hash) and language; only re-parse a blob when its sha changes to avoid rework across history.
+- Parallelize by project -> commit ranges -> files; limit memory by streaming commit lists and using worker pools.
+
+2) Mapping edits to variable spans
+- Store per-blob variable-span annotations (file_path, blob_sha, span_start, span_end, directive_stack, feature_candidates). When a commit modifies a file, compute diffs between old/new blob and map hunks to spans to attribute changed lines to variable vs mandatory based on the annotations.
+- Prefer hunk-based attribution from git diffs for efficiency; reserve git blame (git blame --line-porcelain) for validation samples because blame is expensive at repository scale.
+
+3) Developer identity resolution and provenance
+- Persist original author/committer name and email plus a canonical developer_id. Use deterministic canonicalization (lowercase emails, strip tags, normalize unicode) and automated merging heuristics (email equality, name+domain similarity, edit distance on names with shared emails) plus a manual review table for ambiguous merges.
+- Always retain raw metadata and a developer_resolution_log mapping canonical_id to source identities for reproducibility and auditability.
+
+4) Storage schema and queryability
+- Use columnar storage (Parquet) or a relational DB for analysis-ready artifacts. Minimal schema entities: projects, commits (commit_sha,parent_shas,timestamp,author_id), files_at_commit (commit_sha,file_path,blob_sha), variable_spans(blob_sha,span_start,span_end,directive_stack,feature_id_candidates), edits(commit_sha,file_path,hunk_start,hunk_end,lines_added,lines_removed,variable_overlap), developers(developer_id,raw_names,canonical_name).
+- Record tool versions, parser flags, and extraction timestamps in a provenance table.
+
+5) Validation, sampling and QA
+- Stratified sampling for manual labels by language, file size, and detected variable density to ensure coverage of macros-only, nested-ifs, and generated code.
+- Keep an error taxonomy and automated unit tests that include the test-suite examples described, plus synthetic commits to exercise edge cases.
+- Report detection metrics per-language and per-project and include per-span provenance (which parser and rule produced the label).
+
+6) Practical pitfalls and mitigations
+- Exclude vendored/third-party directories or mark them separately to avoid noise from external generated code.
+- Beware conditional macros used for small constants; use the heuristic rules but also record uncertain flags for human review.
+- Expect performance bottlenecks on very large histories; profile blob parsing and diff mapping and tune worker pools and I/O.
+
+Next steps I can implement: a libgit2-based extractor that caches blob annotations, a normalized Parquet schema, and a developer-identity resolution pipeline plus small CI with the proposed test-suite to validate detection at scale."
+Expertise Metrics Scientist: "The variability-detection and repository-engineering plans from the leads are sound and give us the substrate we need to compute and validate expertise metrics targeted at variable code. Building on those foundations, I propose the following concrete metric design, evaluation plan, and next steps to assess whether conventional expertise metrics capture variable-code proficiency and to validate variability-aware metrics.
+
+Metric design
+- Baseline (conventional) metrics: total commits, total lines added/removed, file-level ownership (fraction of lines owned), tenure (first-to-last commit), developer centrality in the co-edit network (degree, eigenvector), and PR/issue activity counts where available.
+- Variable-aware metrics: variable-commit-count, variable-lines-added/removed, variable-churn-ratio (variable edits / total edits), variable-file-count, variable-ownership (fraction of variable lines owned), feature-diversity (number of distinct feature macros touched), recency-weighted variable activity (exponential decay), and focusedness (Gini coefficient of variable edits across features).
+- Composite Variable Expertise Score (VES): a normalized weighted sum of key components (proportion of variable edits, variable ownership, sustained recency-weighted activity, and focusedness), with per-project z-normalization to control for scale differences.
+
+Evaluation strategy
+- Correlational analysis: compute Spearman correlations between each conventional metric and ground-truth variable expertise (manual labels, high-density variable editors, and survey-validated experts). Report per-project and pooled results with confidence intervals via bootstrapping.
+- Predictive modeling: train classifiers (logistic regression, random forest, XGBoost) to predict whether a developer is a variable-expert. Compare models using only conventional metrics, only variable-aware metrics, and both. Use time-sliced evaluation (train on earlier history, test on later) to simulate real prediction.
+- Ranking/top-k evaluation: measure precision@k, recall@k, and normalized discounted cumulative gain (nDCG) to assess how well metrics surface the true variable experts.
+- Statistical tests and robustness: use Wilcoxon signed-rank or permutation tests to compare metric performance, and perform ablation studies on VES components. Use SHAP for feature importance and interpretability.
+
+Ground truth and validation
+- Use the proposed stratified manual labeling plus synthetic commits for parser validation. Augment with a targeted developer survey asking who maintains/enforces features and who they consult when changing variability. Use survey responses as an orthogonal ground truth to evaluate precision of top-k lists.
+
+Practical notes and limitations
+- Control for confounders (tenure, role, core vs peripheral contributor) via regression models and matched-sampling. Be explicit about noisy identity resolution, generated/vendored code, and incomplete build-config mapping; include uncertainty flags in the dataset.
+
+Next steps
+- Implement metric computation integrated with the blob-cache and variable-span DB, compute metrics for all 25 projects, run correlation and classifier experiments, and prepare reproducible analysis notebooks and a metric definition artifact for review."
+Statistical Design Lead: "Below I propose a focused, statistically rigorous analysis plan that builds on the variability-detection and metric pipelines already specified. It covers hypotheses, models, power/precision considerations, confounder control, multiple-testing, sensitivity checks, and reporting practices.
+
+Primary hypotheses
+- H1 (concentration): Variable-code edits are concentrated in a small subset of developers (heavy-tail distribution). Testable via inequality metrics (Gini, top-k share) and comparison to null/permutation.
+- H2 (metric validity): Conventional expertise metrics (total commits, tenure, file ownership) do not reliably identify variable-code experts relative to variable-aware metrics. Testable via predictive performance and regression effect sizes.
+
+Modeling and tests
+- Descriptive concentration: compute Gini, Lorenz curves, and top-1/top-5/top-10 shares of variable edits per project. Test concentration against null by project-level permutation of edits to developers (retain per-developer total edits) and report empirical p-values and effect sizes (Gini, share).
+- Multilevel inference: use mixed-effects (hierarchical) models to estimate predictors of variable-activity. For binary/expert label use logistic mixed model; for continuous variable-activity use linear mixed model (log-transformed where skewed). Include fixed effects for candidate predictors (conventional metrics, variable-aware metrics) and random intercepts for project and developer (crossed effects if developers appear in multiple projects). Report fixed-effect estimates with 95% CIs and marginal/conditional R^2.
+- Predictive evaluation: time-sliced classification (train on earlier history, test on later) with nested CV by project. Evaluate AUC, precision@k, nDCG, and calibration. Compare models using only conventional metrics vs variable-aware metrics; test differences via paired permutation/Delong tests where applicable.
+
+Power and detectable effects
+- Use simulation-based power analysis for the planned multilevel models: simulate realistic project/developer structures (25 projects, observed developer counts), ICCs, and plausible effect sizes; vary sample size and effect magnitudes to estimate power for fixed-effect coefficients and AUC differences. Preliminary rule: with 25 projects and thousands of developers, we expect >80% power to detect moderate standardized effects (OR ≈1.3–1.5) but confirm via simulation.
+
+Multiple testing and inferential hierarchy
+- Pre-specify primary outcomes (concentration metrics and main predictive comparison). Apply Benjamini–Hochberg FDR for exploratory per-project tests and Bonferroni or hierarchical testing for confirmatory families. Prefer hierarchical mixed models to reduce multiplicity by borrowing strength across projects.
+
+Confounding and sensitivity
+- Adjust models for known confounders: tenure, total commits, role proxies (PR/issue activity), ownership, language, and vendoring flags. Use propensity score matching or covariate adjustment for robustness checks.
+- Sensitivity analyses: alternate variable-span definitions, excluding vendored code, varying expert-label thresholds (top 1/5/10%), and simulated label noise (misclassification rates) to assess stability. Report E-values or Rosenbaum bounds where causal claims are suggested.
+
+Reporting and reproducibility
+- Report effect sizes with 95% CIs, ICCs, marginal/conditional R^2, and model diagnostics. For classifiers report AUC with CI, precision@k, calibration plots, and SHAP/feature importances. Pre-register analysis plan, publish analysis code, seed data splits, and simulated power scripts for reproducibility.
+
+I can produce the simulation scripts for power, the mixed-model specifications (lme4/brms formulas), and a checklist for pre-registration and sensitivity analyses."
+Qualitative Methods Specialist: "High-level plan: I will design and run a mixed qualitative component that (1) elicits developers’ lived experience with preprocessor-based variability, (2) validates who the project considers “experts” for variable code, and (3) explains discrepancies between repository-derived metrics and perceived expertise. The work will produce a reproducible codebook, thematic analysis, and triangulated findings mapped back to the quantitative metrics.
+
+Sampling and recruitment: sample purposively from the mined dataset to maximize informational value: (a) top variable-activity contributors (top 1–5%), (b) medium activity contributors, (c) low/zero variable contributors, and (d) ambiguous/merged identities flagged by the pipeline. Aim for ~150–300 survey responses and 25–40 semi-structured interviews across projects and languages, balancing core vs peripheral roles and geographic/timezone spread. Recruit via targeted email from commit metadata, project mailing lists, and GitHub issues/PRs; offer modest incentives and clear ethical consent.
+
+Survey design (short, ~10–15 minutes): include closed and open items to validate metric signals.
+- Self-identification: roles, tenure, hours/week, primary languages.
+- Variable-work frequency: How often do you modify code behind preprocessor guards? (Likert + approximate percent of edits).
+- Perceived expertise: Who in this project would you ask about variability? (free text).
+- Tooling and practices: Do you run builds with feature combos, use feature matrices, or static analysis? (checkboxes).
+- Attitudes and cost: How costly are variability edits for you? (Likert).
+- Open comments: biggest challenges and examples.
+
+Interview guide (45–60 minutes, semi-structured) topics and prompts:
+- Pathway: How did you learn to work with variable/preprocessor code?
+- Practices: Walk me through a recent variable-code change; what checks did you perform?
+- Expertise and recognition: Who is considered an expert and how is that known/communicated?
+- Collaboration and gatekeeping: Are variable edits reviewed differently? Who reviews?
+- Tooling gaps and suggestions: Which tools/processes would reduce error or onboarding time?
+- Reaction to metrics: Present anonymized metric snapshots (e.g., “your repo shows X edits in variable code”) and ask for reactions and corrections.
+
+Coding scheme and analysis: develop a priori codes informed by research goals (expertise recognition, onboarding, cognitive cost, testing practice, tooling, social allocation of responsibilities, uncertainty about macros) and add inductive codes during open coding. Two coders will double-code 20% of transcripts, compute Cohen’s kappa, reconcile disagreements, and finalize codebook. Use thematic analysis to produce themes with exemplar quotes and cross-case matrices linking themes to developer categories (top-variable, medium, low).
+
+Triangulation with quantitative data: use survey self-reports and interview-identified expert lists as external ground truth to (a) evaluate precision/recall of variable-expertise metrics, (b) refine metric weighting (e.g., weight ownership vs churn), and (c) explain false positives/negatives (role-based, review-only contributors, bot commits, config maintainers). Run capture-recapture style checks: compare top-k from metrics to peer-nominated experts and compute overlap statistics.
+
+Ethics, privacy, and deliverables: obtain IRB/ethics approval, informed consent, and anonymize quotes. Deliverables will include the survey instrument, interview guide, codebook, labeled excerpts, thematic report mapping qualitative insights to metric design, and recommendations for metric adjustments and tooling/practice interventions.
+
+Pilot plan and timeline: pilot survey (n=20) and 4 interviews in 2 weeks, refine instruments, then full deployment over 8–12 weeks. I can draft instruments and the codebook and execute the analysis and integration with the quantitative team."
+Reproducibility & Data Steward: "Thanks — below I summarize a concise, actionable reproducibility, data-governance, and artifact-delivery plan tailored to the variability-detection and metrics pipelines described and that I will implement/maintain as Reproducibility & Data Steward.
+
+1) Repository & artifact structure
+I will maintain a single public repository with clear top-level folders: code/, containers/, data-schema/, tests/, docs/, examples/, provenance/. The repo will include a machine-readable manifest (manifest.json) listing tool versions, entrypoints, and checksums for released artifacts.
+
+2) Containerization and execution environment
+I will produce Docker and Singularity images that encapsulate the extractor (libgit2-based), parsers (libclang + fallbacks), and analysis notebooks. Images will be versioned and published to Docker Hub/GitHub Container Registry. Each image will include an entrypoint that runs a reproducibility smoke test on a small bundled test-repo.
+
+3) CI and reproducibility checks
+I will add GitHub Actions workflows to run unit tests, build containers, run the smoke test suite on each PR, and produce release artifacts. A reproducibility workflow will re-run the full pipeline on a small sample dataset and compare outputs (by checksum) to expected artifacts to detect regressions.
+
+4) Data schema, storage, and provenance
+I will publish the Parquet schema and relational DDL for the artifacts (commits, files, variable_spans, edits, developers, provenance). All artifacts will include provenance metadata (tool name/version, timestamp, command-line, blob_sha) and a W3C-PROV style provenance file for each major output.
+
+5) Developer identity resolution and privacy
+I will store raw author metadata and a developer_resolution_log internally, but public releases will pseudonymize individuals: canonical developer_id will be HMAC(email_or_name, project_salt) where salts are per-project and stored offline. Public datasets will contain only pseudonyms and aggregated metrics; the raw resolution table will be available under controlled access for replication requests subject to a data-use agreement and IRB safeguards.
+
+6) Anonymization and ethical compliance
+I will produce an anonymization plan describing what is released (aggregates, per-developer pseudonyms, variable-span labels) and what is withheld (raw emails, commit hashes mapped to identities). I will coordinate IRB/ethics documentation and consent templates for surveys/interviews, and include a clear privacy notice for contributors.
+
+7) Licensing and third-party code
+I will scan each project with scancode-toolkit to identify licenses and flag incompatible projects. The artifact README will list license constraints and include license text snippets. Vendored/third-party code will be excluded or marked; generated code will be noted.
+
+8) Data release options and identifiers
+I will prepare two release tiers: (A) fully open derivatives (aggregated metrics, variable-span examples, labeled samples, scripts) deposited on Zenodo with DOI and CC-BY license, and (B) controlled-access raw mapping and annotated commit lists under DUA for verified researchers. All releases will include checksums and a CITATION file.
+
+9) Deliverables and timeline
+Deliverables: container images + Dockerfiles, CI workflows, Parquet schema and example datasets, anonymization & DMP docs, provenance manifests, license report, reproducibility smoke tests, and a release bundle on Zenodo. I will deliver initial containers, CI, and docs within two sprints and the first Zenodo artifact after validation of the sample-run.
+
+If you approve, I will start implementing the container images, CI workflows, and the anonymization/DMP templates and sync with the leads to ensure provenance fields capture all parser/heuristic decisions."
+Variability Analysis Lead: "Agreed plan and concrete deliverables for Meeting 1.
+
+Pilot repositories and owners: I propose three pilots that exercise scale and build-system diversity — Linux kernel (Kconfig-rich, extreme scale) owned by Repository Mining Engineer, FFmpeg (C, heavy preprocessor use) owned by Variability Analysis Lead, and LibreOffice (large C++ codebase with complex macros) owned by Repository Mining Engineer. These will stress build-metadata mapping, parser memory, and vendor-code heuristics.
+
+Toolset to evaluate and evaluation metrics: we will evaluate four parsers/pipelines: libclang (preprocessor callbacks), gcc -E (line markers), TypeChef, and SuperC. For each tool we will measure detection precision, recall, F1 (against manual ground truth), runtime (wall-clock), peak memory, and parser-span agreement (percent identical variable-span boundaries). We will also quantify how each tool’s outputs change VES rankings using Spearman correlation and top-k overlap (precision@k).
+
+Build-metadata heuristics and confidence scoring: extract config.h, Kconfig files, CMakeCache.txt, configure.ac, compile_commands.json, and per-TU flags when available. Attempt automated extraction of compile flags by parsing build files and, for pilots, collecting a compile_commands.json via build-wrappers when feasible. Confidence scores will be numeric: High (0.9) when explicit per-TU flags or config artifact maps macro to feature, Medium (0.6) when inferred from Kconfig/CMake heuristics or cross-file macro frequency, Low (0.2) when no metadata exists and mapping is speculative. All provenance for mappings will be recorded.
+
+Generated/vendor code blacklist/whitelist policy: whitelist project src/ and documented feature directories; blacklist vendor/, third_party/, generated/, and files with "@generated" or common generator headers. Use scancode-toolkit and path heuristics to detect vendored/generated code, and publish a blacklist/whitelist file per project. We will report the fraction of detected variability residing in blacklisted paths as a QC metric.
+
+Developer identity merging and provenance: apply conservative rules: exact email match -> merge; canonicalized email equality after normalization -> merge; name+email similarity or name-only matches require evidence (shared commit patterns) and receive lower confidence; never auto-merge distinct emails without corroborating evidence. Record every source identity, merge decision, evidence, and confidence in a developer_resolution_log. Public releases will publish HMAC-hashed IDs using per-project salts kept offline; controlled-access requests for salts will be handled under DUA.
+
+Stratified labeling protocol and fallbacks: run a 100-label pilot to estimate prevalence, then target ~400 labels stratified by project, language, and detected variable-density to achieve ±5% CI for precision/recall. Two independent annotators, Cohen’s kappa reported, adjudication step for disagreements. Fallback validation channels include OWNERS/code-review traces, small expert interviews, and targeted survey nominations.
+
+VES components and weighting procedure: candidate components: proportion variable edits, variable-lines owned, recency-weighted variable activity, feature-diversity, and focusedness (Gini). We will learn weights by optimizing predictive performance on a held-out validation set of survey/interview-validated experts, provide expert-driven baseline weights, and publish sensitivity analyses (weight perturbation, rank-stability, Spearman/top-k changes).
+
+Compute/storage and timeline: pilot (3 repos) estimate ~200 CPU-hours, 200 GB disk, peak node RAM 32–64 GB; full study (25 repos) estimate ~5,000 CPU-hours, ~4 TB Parquet storage, peak node RAM 128 GB on cluster. Timeline: pilots complete in 6 weeks (parsers, metadata mapping, labeling pilot); full run in 12–16 weeks. Owners: Variability Analysis Lead implements parsers/heuristics and labeling guidelines; Repo Engineer implements extractor and caching; Reproducibility Steward outfits CI/containers; Qual Lead coordinates labeling and interviews.
+
+Success criteria and next steps: achieve pilot detection precision ≥90% and recall ≥85%, implement confidence scoring and provenance, demonstrate blacklist effect (reduction in spurious variability), compute VES and sensitivity reports, and produce reproducible artifacts and a pilot-results memo. Next step is to start parser builds and a 100-label pilot this week."
+Repository Mining Engineer: "Agreed — I will own implementation of the scalable extractor, blob-cache, developer-resolution pipeline, storage schema, and CI/provenance artifacts for the three pilots (Linux kernel, FFmpeg, LibreOffice) and support full-run scale-up. Concrete plan, heuristics, and deliverables:
+
+1) Extractor + blob caching
+I will implement a libgit2-based extractor that streams commit lists, stores file blobs keyed by blob_sha, and parses each blob only when its sha or language changes. The blob annotation will include variable_spans(blob_sha, file_path, span_start, span_end, directive_stack, parser_id, parser_version, feature_candidates, provenance_id).
+
+2) Mapping edits -> variable spans
+Edits will be attributed by hunk mapping between old/new blob_shas using cached span annotations; git blame will be used only for validation samples. We will persist edits(commit_sha,file_path,hunk_start,hunk_end,lines_added,lines_removed,variable_overlap_fraction,provenance_id).
+
+3) Developer identity resolution (conservative, auditable)
+Merge rules: exact email equality -> high-confidence merge; normalized email equality (lowercase, strip +/- tags) -> high; identical email local-part with different domains -> require corroboration (shared commits or same author name) -> medium; name-only similarity (Levenshtein ≤2 or token overlap) requires corroborating evidence -> low and flagged for manual review. Never auto-merge distinct emails without corroboration. The developer_resolution_log will record raw identities, canonical_id, merge_decision, evidence_items, confidence_score, timestamp, and operator_id. Public releases will contain only HMAC(project_salt, canonical_id) with salts kept offline; controlled-access salts handled under DUA and escrow if needed.
+
+4) Build-metadata heuristics & confidence scoring
+We will extract config.h, Kconfig, CMakeCache.txt, configure.ac, compile_commands.json, and per-TU flags when available. Mapping confidence: High (0.9) if per-TU compile_commands.json or explicit mapping in config files; Medium (0.6) if mapping inferred from Kconfig/CMake options or repeated macro patterns; Low (0.2) if mapping based solely on name heuristics or corpus frequency. All mapping provenance is stored per-feature mapping.
+
+5) Generated/vendor code blacklist/whitelist
+We will whitelist src/, lib/ (project-specific) and blacklist vendor/, third_party/, generated/, build/, and files containing @generated or matching common generator patterns. Scancode-toolkit and path heuristics will produce per-project lists and we will report fraction of variable-span mass excluded by blacklists.
+
+6) Labeling protocol and VES weight learning
+Run a 100-label pilot to estimate prevalence; then stratify to ~400 labels across projects/languages/variable-density to target ±5% CI for precision/recall. For VES weights, we will learn weights by optimizing predictive performance on a held-out survey/interview-validated expert set (logistic regression with regularization), provide an expert-weight baseline, and publish sensitivity analyses (weight grid, Spearman/top-k stability).
+
+7) Compute, CI, provenance, timeline
+Pilot estimate: ~200 CPU-hours, ~200 GB disk, peak node RAM 32–64 GB. Full run: ~5,000 CPU-hours, ~4 TB Parquet, peak node RAM 128 GB. I will produce container images, deterministic CI smoke tests (seeded randomness, checksum comparisons), Parquet schema, and W3C-PROV manifests. Owners and next steps: I will deliver the libgit2 extractor, blob-cache, Parquet schema, developer_resolution_log template, and CI within two sprints; Variability Lead runs parser comparisons and labeling pilot in parallel. Success criteria: pilot detection precision ≥90% and recall ≥85%, reproducible pilot artifacts, and documented provenance/confidence for all mappings."
+Expertise Metrics Scientist: "Thank you — I endorse the proposed pipeline and offer a concise, actionable plan for metric construction, validation, and governance that ties directly to the Meeting 1 deliverables and the high-priority feedback.
+
+Metric design and VES construction: I will compute baseline metrics (total commits, lines added/removed, file ownership, tenure, co-edit centrality) and variable-aware metrics (variable-commit-count, variable-lines-added/removed, variable-churn-ratio, variable-file-count, variable-ownership, feature-diversity, recency-weighted activity, and focusedness/Gini). The Composite Variable Expertise Score (VES) will be built from per-project z-normalized components; we will learn weights by optimizing predictive performance (regularized logistic regression or gradient-boosting) on a held-out validation set of survey/interview-validated experts and publish an expert-weight baseline. We will report sensitivity via weight-perturbation grids, Spearman rank stability, and precision@k/nDCG.
+
+Validation, sampling, and ground truth: we will run a 100-label pilot to estimate prevalence and then target ~400 stratified labels (by project, language, and detected variable-density) to achieve ≈±5% 95% CI on precision/recall for proportions near 50%; two annotators, Cohen’s kappa, and adjudication will be used. Pre-registered fallback validations include OWNERS and code-review traces, peer nomination from surveys, and small expert interviews if survey response is low.
+
+Parser/tool evaluation and build-metadata linking: we will evaluate libclang, gcc -E, TypeChef, and SuperC across the three pilots (Linux kernel, FFmpeg, LibreOffice) for precision/recall/F1, runtime, peak memory, and parser-span agreement. Build artifacts to extract include config.h, Kconfig, CMakeCache.txt, configure.ac, and compile_commands.json; confidence scores will be High (0.9) for explicit per-TU flags or direct mappings, Medium (0.6) for heuristics/Kconfig-based inference, and Low (0.2) when only name heuristics or corpus frequency support mapping. All mappings will store provenance.
+
+Generated/vendor code and identity resolution: we will apply a blacklist/whitelist policy (blacklist vendor/, third_party/, generated/, files with @generated; whitelist canonical src paths), quantify excluded variability mass, and publish per-project lists. Developer merges will be conservative: exact email or normalized email match -> high-confidence merge; name-only or domain-different matches require corroborating evidence and are flagged; every decision and evidence is recorded in a developer_resolution_log. Public releases will use HMAC(project_salt, canonical_id) with salts stored offline and raw resolution tables available under DUA/escrow for approved researchers.
+
+Statistical and reproducibility safeguards: power simulations will be published with explicit parameters (ICC ranges, per-project developer distributions, skewness assumptions) and used to justify detectable effect sizes. Predictive evaluations will use temporal splits (train on history up to T, test on after T), de-duplicate files across splits, and report calibration. CI will be deterministic (seeded) and containers, Parquet schema, DUA templates, and W3C-PROV manifests will be prepared.
+
+Compute and timeline: pilot estimates are ~200 CPU-hours, ~200 GB disk, peak RAM 32–64 GB; full run ~5,000 CPU-hours, ~4 TB Parquet, peak RAM 128 GB. Next steps: I will implement metric computation integrated with the blob-cache, run the 100-label pilot this week, learn initial VES weights on pilot labels, and deliver a pilot-results memo with sensitivity analyses and predictive baselines within six weeks."
+
+**Instructions:**
+Based on your expertise, assigned role, and the feedback you received, provide a thoughtful and technically sound response to the current task or situation.
+Your response should reflect your specialization, align with your goal, and demonstrate collaboration within the research context.
+
+Output ONLY in STRING format (try to form understandable and research oriented complete sentences, do not just generate characters or words, try to be on the context and use have clarity and generate full well-structured sentences).
+DO NOT HAVE ANY EMPTY CHARACTERS OR PLACEHOLDERS IN YOUR RESPONSE. RESPONSE SHOULD BE IN COMPLETE WELL-STRUCTURED SENTENCES. (priority : very high), KEEP IN MIND THAT YOUR RESPONSE SHOULD NOT BE TOO LONG KEEPING ITS RESPONSE UNDER 450-500 WORDS.
+Your Response:
+
+------------------------------------------------------------
+
+RESPONSE:
+------------------------------------------------------------
+Summary and concrete statistical plan for Meeting 1 — concise, actionable, and owner-assigned.
+
+Primary deliverables (by end of Meeting 1)
+- Run 3 pilots (Linux kernel, FFmpeg, LibreOffice) to evaluate parsers and collect a 100-label pilot. Owners: Repo Engineer (extractor, caching, provenance), Variability Lead (parsers, labeling guidelines), Qual Lead (labeling execution).
+- Deliver simulation scripts, pre-registered analysis plan, and initial mixed-model specifications. Owner: Statistical Design Lead.
+- Produce VES candidate components, learned-weight baseline on pilot labels, and sensitivity grid. Owner: Expertise Metrics Scientist.
+- Containerized CI + DUA/identity-log template and provenance manifest. Owner: Reproducibility Steward.
+
+Statistical hypotheses and primary outcomes
+- H1 (concentration): measure Gini, Lorenz, and top-k shares of variable edits per project; test against permutation nulls (retain per-developer total edits).
+- H2 (metric validity): compare predictive performance (AUC, precision@k, nDCG) of conventional metrics versus variable-aware metrics for identifying variable experts.
+
+Modeling specifications (to implement)
+- Binary expert label: glmer(expert ~ conventional_metrics + variable_metrics + tenure + I(log(total_commits+1)) + (1|project) + (1|developer), family=binomial).
+- Continuous variable activity: lmer(log(variable_edits+1) ~ conventional_metrics + variable_metrics + tenure + (1|project) + (1|developer)).
+- Report fixed effects with 95% CIs, marginal/conditional R2, ICCs, and diagnostics.
+
+Power / simulation plan (parameters to publish)
+- Projects = 25; developers per project mean 200 with heavy right skew (Pareto alpha=1.5); ICC range 0.01–0.20; baseline prevalence of expert label 5–15% by project.
+- Effect-size targets: OR in 1.3–1.6 range for predictors; AUC differences 0.05–0.10.
+- Simulate 1,000 datasets per parameter set; quantify power to detect OR=1.4 and AUC delta=0.05 at 80% and 90% power. All seeds and DGP scripts will be published.
+
+Sampling, labeling, and CIs
+- Pilot: 100 stratified labels to estimate prevalence and variance. Full ground-truth labelling: ~400 stratified labels across projects/languages/variable-density to target ±5% 95% CI on precision/recall near 50%. Two annotators, Cohen’s kappa, adjudication.
+
+Temporal splits and leakage control
+- Use time-sliced evaluation: train on commits ≤T, test on >T. Report two leakage-robust settings: (A) file-level split (new files in test) and (B) developer-level split (hold out developers) to test generalization. De-duplicate files and remove any exact-copy blobs across splits prior to training.
+
+Multiple testing and inferential hierarchy
+- Pre-specify primary outcomes (Gini concentration and AUC difference). For exploratory per-project tests apply Benjamini–Hochberg FDR at 5%. Use hierarchical mixed models to borrow strength and reduce multiplicity where possible.
+
+Sensitivity and robustness checks
+- Vary parser outputs (libclang, gcc -E, TypeChef, SuperC), include/exclude blacklisted vendor/generated code, perturb VES weights, and inject label noise (5–20%) to assess stability. Report rank-stability (Spearman) and top-k overlap across variants.
+
+Success criteria (pilot)
+- Parser detection precision ≥90% and recall ≥85% on pilot labels; VES yields ΔAUC ≥0.05 over conventional metrics on pilot validation; reproducible, seeded CI smoke tests pass.
+
+Immediate next steps (week 1)
+- I will publish simulation DGPs and model code, run 100-label pilot power check, and pre-register primary outcomes and modeling choices. Repo Engineer and Variability Lead will start extractor + parser runs; Expertise Metrics Scientist will compute initial VES components for pilot and run weight-learning on pilot labels.
+============================================================
+
+
+
+============================================================
+TIMESTAMP: 2026-05-14 20:24:39
+============================================================
+
+PROMPT:
+------------------------------------------------------------
+
+You are Statistical Design Lead, an expert agent contributing to the research project on "A large-scale study on developer engagement and expertise in configurable software system projects".
+Research Description provided by human researcher initially: A large-scale study on developer engagement and expertise in configurable software system projects ,Core idea is: Examine developer engagement with variable versus mandatory code in configurable software systems (where variability is implemented via preprocessor directives), analyze the concentration of variable-code workload across developers, and evaluate whether conventional expertise metrics effectively capture proficiency with variable code by mining repositories of 25 CSS projects and tens of thousands of commits and developers. ,keywords to are: software product lines, preprocessor-based systems, expertise metrics, mining software repositories ,other information:Empirical study that analyzes who works on variability (preprocessor-based variable code) in configurable systems and assesses whether standard expertise metrics identify those developers, using large-scale repository mining.
+
+**Agent Profile:**
+- Expertise: Empirical study design, statistical inference, mixed-effects models, causal reasoning, power and robustness analysis for observational software data.
+- Role: Design the study's statistical plan, choose appropriate models (e.g., hierarchical/mixed models for developer-project nesting), run power analyses, oversee multiple-testing correction, sensitivity analyses, and produce interpretable statistical reporting.
+- Goal: Ensure analyses are statistically rigorous: design hypothesis tests, control for confounders, compute adequate sample sizes, and quantify uncertainty and effect sizes in claims about concentration and metric performance.
+
+**Previous Feedback Received (priority : high):**
+Overall the team produced a thorough, coherent, and reproducible plan that covers parsers, extractor/caching, developer-resolution, labeling, metric construction, qualitative validation, statistical pre-registration, and data-governance. To increase rigor and reduce residual risk, address these specific points: 1) Labeling/sample-size justification: the stated ~400 ground-truth labels is adequate for near-50% prevalence but will be underpowered for low-prevalence expert labels (e.g., 5–15%). Publish power calculations for precision/recall at multiple prevalences and be prepared to oversample positive cases (stratified or two-stage sampling) or increase labels where prevalence is low. 2) Calibration and provenance of confidence scores: numeric confidence buckets (0.9/0.6/0.2) are reasonable but should be empirically calibrated (e.g., reliability diagrams, Brier score) against the pilot labels and reported per-project. 3) Developer-merge evaluation: provide explicit metrics (precision/recall/F1) for identity resolution on a held-out hand-labeled identity set, and quantify the consequences of under- vs over-merging on VES and concentration statistics. 4) Generated/vendor-code detection: scancode + path heuristics are a good start but will miss many generated artifacts; augment with file-content heuristics (typical generated-file headers), build-system outputs, and targeted sampling to estimate false-negative rates of blacklists. 5) Parser/legal/tooling constraints: document licensing and build-setup constraints for TypeChef and SuperC and provide fallback options (e.g., best-effort GCC-based heuristics) where tools cannot be used. 6) Ground-truth for parser precision/recall: ensure ground truth covers diverse directive patterns, nested directives, macro-based variability, and generated code cases; consider stratified ground truth sampling by directive complexity. 7) Pre-registration and analysis transparency: publish a pre-registration (analysis plan + DGP seeds + primary/secondary outcomes) prior to full runs; link to an accessible repository/OSF entry. 8) Fairness and construct validity: assess whether VES systematically under- or over-identifies certain developer subgroups (e.g., newcomers, domain-specific maintainers) and report subgroup analyses. 9) Leakage controls: the proposed temporal/file/developer splits are good — add explicit rules for file-copy detection thresholds and for handling cherry-picked commits across branches. 10) Qualitative–quantitative integration: specify concrete thresholds and provenance rules for when qualitative findings induce metric additions or weight changes (beyond >50% rule examples). Implement human-in-the-loop review for mapping-critical decisions flagged by low confidence. Addressing these will strengthen internal validity, reproducibility, and the interpretability of VES across projects.
+
+guidance and questions for you by the Principal Investigator (priority : very high):
+Guidance: For Meeting 2: decide concrete sampling and labeling targets, oversampling rules, and power calculations; specify ground-truth stratification by directive complexity; pick calibration methods and project-level reporting for confidence scores; finalize identity-resolution evaluation set and metrics; choose generated-code detection heuristics and targeted sampling to estimate false negatives; enumerate parser fallback paths and licensing constraints; pre-registration checklist (primary/secondary outcomes, DGP seeds, temporal splits, OSF/DOI); define leakage-detection rules (file-copy thresholds, cherry-pick handling); set subgroup analyses for fairness; and adopt human-in-the-loop thresholds and adjudication workflow. Assign owners and deliverable dates for each item.
+
+ 
+Questions: ['How should we compute power and explicit sample-size targets for precision/recall at expert prevalences of 1–5%, 5–15%, and ~50%, and what oversampling or two-stage sampling strategy minimizes labeling cost?', 'What stratified ground-truth sampling scheme ensures coverage of directive complexity (nested directives, macro-based variability, conditional macros, generated-file patterns) while bounding label budget?', 'How can we empirically calibrate numeric confidence buckets (e.g., 0.9/0.6/0.2) across projects using reliability diagrams, Brier scores, and per-project recalibration procedures?', 'Which held-out identity-resolution benchmarks and metrics (precision/recall/F1, over/under-merge rates) should we create, and how do merge errors quantitatively affect VES and concentration statistics?', 'What additional heuristics and targeted sampling methods (content headers, build-output artifacts, path heuristics) best detect vendor/generated code false negatives beyond scancode?', 'What parser fallback strategy and documentation should we adopt for TypeChef/SuperC failures, including licensing, build-setup constraints, and best-effort GCC-based heuristics?', 'What precise pre-registration plan and artefact set (primary/secondary outcomes, DGP seeds, temporal splits, analysis scripts, OSF/Zenodo entry) will we publish before full runs and how to version updates?', 'Which subgroup definitions and statistical tests should we use to detect systematic VES bias for newcomers, domain specialists, organization-affiliated, and sporadic contributors?', 'What explicit leakage-detection rules (file-copy similarity thresholds, temporal fencing, cherry-pick heuristics) should we apply and how will we flag ambiguous cases for manual review?', 'What human-in-the-loop thresholds (confidence, low-sample warnings, qualitative-flag triggers) will mandate manual adjudication, and how will qualitative findings map to metric revisions?']
+
+answer based on real-world knowledge and scientific principles:
+[None, None, None, None, None, None, None, None, None, 'Human-in-the-loop thresholds mandate manual adjudication for low confidence scores, low-sample warnings, and qualitative-flag triggers. Qualitative findings revise metrics through expert review and adjustments.']
+
+**Current Task or Situation:**
+If any feedback was provided, address it in your response. Otherwise, respond to the current research task and explore the research area by giving ideas which fill the gaps in research according to your expertise.
+
+**Recent Conversation Log (last exchanges):**
+Statistical Design Lead: "Below I propose a focused, statistically rigorous analysis plan that builds on the variability-detection and metric pipelines already specified. It covers hypotheses, models, power/precision considerations, confounder control, multiple-testing, sensitivity checks, and reporting practices.
+
+Primary hypotheses
+- H1 (concentration): Variable-code edits are concentrated in a small subset of developers (heavy-tail distribution). Testable via inequality metrics (Gini, top-k share) and comparison to null/permutation.
+- H2 (metric validity): Conventional expertise metrics (total commits, tenure, file ownership) do not reliably identify variable-code experts relative to variable-aware metrics. Testable via predictive performance and regression effect sizes.
+
+Modeling and tests
+- Descriptive concentration: compute Gini, Lorenz curves, and top-1/top-5/top-10 shares of variable edits per project. Test concentration against null by project-level permutation of edits to developers (retain per-developer total edits) and report empirical p-values and effect sizes (Gini, share).
+- Multilevel inference: use mixed-effects (hierarchical) models to estimate predictors of variable-activity. For binary/expert label use logistic mixed model; for continuous variable-activity use linear mixed model (log-transformed where skewed). Include fixed effects for candidate predictors (conventional metrics, variable-aware metrics) and random intercepts for project and developer (crossed effects if developers appear in multiple projects). Report fixed-effect estimates with 95% CIs and marginal/conditional R^2.
+- Predictive evaluation: time-sliced classification (train on earlier history, test on later) with nested CV by project. Evaluate AUC, precision@k, nDCG, and calibration. Compare models using only conventional metrics vs variable-aware metrics; test differences via paired permutation/Delong tests where applicable.
+
+Power and detectable effects
+- Use simulation-based power analysis for the planned multilevel models: simulate realistic project/developer structures (25 projects, observed developer counts), ICCs, and plausible effect sizes; vary sample size and effect magnitudes to estimate power for fixed-effect coefficients and AUC differences. Preliminary rule: with 25 projects and thousands of developers, we expect >80% power to detect moderate standardized effects (OR ≈1.3–1.5) but confirm via simulation.
+
+Multiple testing and inferential hierarchy
+- Pre-specify primary outcomes (concentration metrics and main predictive comparison). Apply Benjamini–Hochberg FDR for exploratory per-project tests and Bonferroni or hierarchical testing for confirmatory families. Prefer hierarchical mixed models to reduce multiplicity by borrowing strength across projects.
+
+Confounding and sensitivity
+- Adjust models for known confounders: tenure, total commits, role proxies (PR/issue activity), ownership, language, and vendoring flags. Use propensity score matching or covariate adjustment for robustness checks.
+- Sensitivity analyses: alternate variable-span definitions, excluding vendored code, varying expert-label thresholds (top 1/5/10%), and simulated label noise (misclassification rates) to assess stability. Report E-values or Rosenbaum bounds where causal claims are suggested.
+
+Reporting and reproducibility
+- Report effect sizes with 95% CIs, ICCs, marginal/conditional R^2, and model diagnostics. For classifiers report AUC with CI, precision@k, calibration plots, and SHAP/feature importances. Pre-register analysis plan, publish analysis code, seed data splits, and simulated power scripts for reproducibility.
+
+I can produce the simulation scripts for power, the mixed-model specifications (lme4/brms formulas), and a checklist for pre-registration and sensitivity analyses."
+Qualitative Methods Specialist: "High-level plan: I will design and run a mixed qualitative component that (1) elicits developers’ lived experience with preprocessor-based variability, (2) validates who the project considers “experts” for variable code, and (3) explains discrepancies between repository-derived metrics and perceived expertise. The work will produce a reproducible codebook, thematic analysis, and triangulated findings mapped back to the quantitative metrics.
+
+Sampling and recruitment: sample purposively from the mined dataset to maximize informational value: (a) top variable-activity contributors (top 1–5%), (b) medium activity contributors, (c) low/zero variable contributors, and (d) ambiguous/merged identities flagged by the pipeline. Aim for ~150–300 survey responses and 25–40 semi-structured interviews across projects and languages, balancing core vs peripheral roles and geographic/timezone spread. Recruit via targeted email from commit metadata, project mailing lists, and GitHub issues/PRs; offer modest incentives and clear ethical consent.
+
+Survey design (short, ~10–15 minutes): include closed and open items to validate metric signals.
+- Self-identification: roles, tenure, hours/week, primary languages.
+- Variable-work frequency: How often do you modify code behind preprocessor guards? (Likert + approximate percent of edits).
+- Perceived expertise: Who in this project would you ask about variability? (free text).
+- Tooling and practices: Do you run builds with feature combos, use feature matrices, or static analysis? (checkboxes).
+- Attitudes and cost: How costly are variability edits for you? (Likert).
+- Open comments: biggest challenges and examples.
+
+Interview guide (45–60 minutes, semi-structured) topics and prompts:
+- Pathway: How did you learn to work with variable/preprocessor code?
+- Practices: Walk me through a recent variable-code change; what checks did you perform?
+- Expertise and recognition: Who is considered an expert and how is that known/communicated?
+- Collaboration and gatekeeping: Are variable edits reviewed differently? Who reviews?
+- Tooling gaps and suggestions: Which tools/processes would reduce error or onboarding time?
+- Reaction to metrics: Present anonymized metric snapshots (e.g., “your repo shows X edits in variable code”) and ask for reactions and corrections.
+
+Coding scheme and analysis: develop a priori codes informed by research goals (expertise recognition, onboarding, cognitive cost, testing practice, tooling, social allocation of responsibilities, uncertainty about macros) and add inductive codes during open coding. Two coders will double-code 20% of transcripts, compute Cohen’s kappa, reconcile disagreements, and finalize codebook. Use thematic analysis to produce themes with exemplar quotes and cross-case matrices linking themes to developer categories (top-variable, medium, low).
+
+Triangulation with quantitative data: use survey self-reports and interview-identified expert lists as external ground truth to (a) evaluate precision/recall of variable-expertise metrics, (b) refine metric weighting (e.g., weight ownership vs churn), and (c) explain false positives/negatives (role-based, review-only contributors, bot commits, config maintainers). Run capture-recapture style checks: compare top-k from metrics to peer-nominated experts and compute overlap statistics.
+
+Ethics, privacy, and deliverables: obtain IRB/ethics approval, informed consent, and anonymize quotes. Deliverables will include the survey instrument, interview guide, codebook, labeled excerpts, thematic report mapping qualitative insights to metric design, and recommendations for metric adjustments and tooling/practice interventions.
+
+Pilot plan and timeline: pilot survey (n=20) and 4 interviews in 2 weeks, refine instruments, then full deployment over 8–12 weeks. I can draft instruments and the codebook and execute the analysis and integration with the quantitative team."
+Reproducibility & Data Steward: "Thanks — below I summarize a concise, actionable reproducibility, data-governance, and artifact-delivery plan tailored to the variability-detection and metrics pipelines described and that I will implement/maintain as Reproducibility & Data Steward.
+
+1) Repository & artifact structure
+I will maintain a single public repository with clear top-level folders: code/, containers/, data-schema/, tests/, docs/, examples/, provenance/. The repo will include a machine-readable manifest (manifest.json) listing tool versions, entrypoints, and checksums for released artifacts.
+
+2) Containerization and execution environment
+I will produce Docker and Singularity images that encapsulate the extractor (libgit2-based), parsers (libclang + fallbacks), and analysis notebooks. Images will be versioned and published to Docker Hub/GitHub Container Registry. Each image will include an entrypoint that runs a reproducibility smoke test on a small bundled test-repo.
+
+3) CI and reproducibility checks
+I will add GitHub Actions workflows to run unit tests, build containers, run the smoke test suite on each PR, and produce release artifacts. A reproducibility workflow will re-run the full pipeline on a small sample dataset and compare outputs (by checksum) to expected artifacts to detect regressions.
+
+4) Data schema, storage, and provenance
+I will publish the Parquet schema and relational DDL for the artifacts (commits, files, variable_spans, edits, developers, provenance). All artifacts will include provenance metadata (tool name/version, timestamp, command-line, blob_sha) and a W3C-PROV style provenance file for each major output.
+
+5) Developer identity resolution and privacy
+I will store raw author metadata and a developer_resolution_log internally, but public releases will pseudonymize individuals: canonical developer_id will be HMAC(email_or_name, project_salt) where salts are per-project and stored offline. Public datasets will contain only pseudonyms and aggregated metrics; the raw resolution table will be available under controlled access for replication requests subject to a data-use agreement and IRB safeguards.
+
+6) Anonymization and ethical compliance
+I will produce an anonymization plan describing what is released (aggregates, per-developer pseudonyms, variable-span labels) and what is withheld (raw emails, commit hashes mapped to identities). I will coordinate IRB/ethics documentation and consent templates for surveys/interviews, and include a clear privacy notice for contributors.
+
+7) Licensing and third-party code
+I will scan each project with scancode-toolkit to identify licenses and flag incompatible projects. The artifact README will list license constraints and include license text snippets. Vendored/third-party code will be excluded or marked; generated code will be noted.
+
+8) Data release options and identifiers
+I will prepare two release tiers: (A) fully open derivatives (aggregated metrics, variable-span examples, labeled samples, scripts) deposited on Zenodo with DOI and CC-BY license, and (B) controlled-access raw mapping and annotated commit lists under DUA for verified researchers. All releases will include checksums and a CITATION file.
+
+9) Deliverables and timeline
+Deliverables: container images + Dockerfiles, CI workflows, Parquet schema and example datasets, anonymization & DMP docs, provenance manifests, license report, reproducibility smoke tests, and a release bundle on Zenodo. I will deliver initial containers, CI, and docs within two sprints and the first Zenodo artifact after validation of the sample-run.
+
+If you approve, I will start implementing the container images, CI workflows, and the anonymization/DMP templates and sync with the leads to ensure provenance fields capture all parser/heuristic decisions."
+Variability Analysis Lead: "Agreed plan and concrete deliverables for Meeting 1.
+
+Pilot repositories and owners: I propose three pilots that exercise scale and build-system diversity — Linux kernel (Kconfig-rich, extreme scale) owned by Repository Mining Engineer, FFmpeg (C, heavy preprocessor use) owned by Variability Analysis Lead, and LibreOffice (large C++ codebase with complex macros) owned by Repository Mining Engineer. These will stress build-metadata mapping, parser memory, and vendor-code heuristics.
+
+Toolset to evaluate and evaluation metrics: we will evaluate four parsers/pipelines: libclang (preprocessor callbacks), gcc -E (line markers), TypeChef, and SuperC. For each tool we will measure detection precision, recall, F1 (against manual ground truth), runtime (wall-clock), peak memory, and parser-span agreement (percent identical variable-span boundaries). We will also quantify how each tool’s outputs change VES rankings using Spearman correlation and top-k overlap (precision@k).
+
+Build-metadata heuristics and confidence scoring: extract config.h, Kconfig files, CMakeCache.txt, configure.ac, compile_commands.json, and per-TU flags when available. Attempt automated extraction of compile flags by parsing build files and, for pilots, collecting a compile_commands.json via build-wrappers when feasible. Confidence scores will be numeric: High (0.9) when explicit per-TU flags or config artifact maps macro to feature, Medium (0.6) when inferred from Kconfig/CMake heuristics or cross-file macro frequency, Low (0.2) when no metadata exists and mapping is speculative. All provenance for mappings will be recorded.
+
+Generated/vendor code blacklist/whitelist policy: whitelist project src/ and documented feature directories; blacklist vendor/, third_party/, generated/, and files with "@generated" or common generator headers. Use scancode-toolkit and path heuristics to detect vendored/generated code, and publish a blacklist/whitelist file per project. We will report the fraction of detected variability residing in blacklisted paths as a QC metric.
+
+Developer identity merging and provenance: apply conservative rules: exact email match -> merge; canonicalized email equality after normalization -> merge; name+email similarity or name-only matches require evidence (shared commit patterns) and receive lower confidence; never auto-merge distinct emails without corroborating evidence. Record every source identity, merge decision, evidence, and confidence in a developer_resolution_log. Public releases will publish HMAC-hashed IDs using per-project salts kept offline; controlled-access requests for salts will be handled under DUA.
+
+Stratified labeling protocol and fallbacks: run a 100-label pilot to estimate prevalence, then target ~400 labels stratified by project, language, and detected variable-density to achieve ±5% CI for precision/recall. Two independent annotators, Cohen’s kappa reported, adjudication step for disagreements. Fallback validation channels include OWNERS/code-review traces, small expert interviews, and targeted survey nominations.
+
+VES components and weighting procedure: candidate components: proportion variable edits, variable-lines owned, recency-weighted variable activity, feature-diversity, and focusedness (Gini). We will learn weights by optimizing predictive performance on a held-out validation set of survey/interview-validated experts, provide expert-driven baseline weights, and publish sensitivity analyses (weight perturbation, rank-stability, Spearman/top-k changes).
+
+Compute/storage and timeline: pilot (3 repos) estimate ~200 CPU-hours, 200 GB disk, peak node RAM 32–64 GB; full study (25 repos) estimate ~5,000 CPU-hours, ~4 TB Parquet storage, peak node RAM 128 GB on cluster. Timeline: pilots complete in 6 weeks (parsers, metadata mapping, labeling pilot); full run in 12–16 weeks. Owners: Variability Analysis Lead implements parsers/heuristics and labeling guidelines; Repo Engineer implements extractor and caching; Reproducibility Steward outfits CI/containers; Qual Lead coordinates labeling and interviews.
+
+Success criteria and next steps: achieve pilot detection precision ≥90% and recall ≥85%, implement confidence scoring and provenance, demonstrate blacklist effect (reduction in spurious variability), compute VES and sensitivity reports, and produce reproducible artifacts and a pilot-results memo. Next step is to start parser builds and a 100-label pilot this week."
+Repository Mining Engineer: "Agreed — I will own implementation of the scalable extractor, blob-cache, developer-resolution pipeline, storage schema, and CI/provenance artifacts for the three pilots (Linux kernel, FFmpeg, LibreOffice) and support full-run scale-up. Concrete plan, heuristics, and deliverables:
+
+1) Extractor + blob caching
+I will implement a libgit2-based extractor that streams commit lists, stores file blobs keyed by blob_sha, and parses each blob only when its sha or language changes. The blob annotation will include variable_spans(blob_sha, file_path, span_start, span_end, directive_stack, parser_id, parser_version, feature_candidates, provenance_id).
+
+2) Mapping edits -> variable spans
+Edits will be attributed by hunk mapping between old/new blob_shas using cached span annotations; git blame will be used only for validation samples. We will persist edits(commit_sha,file_path,hunk_start,hunk_end,lines_added,lines_removed,variable_overlap_fraction,provenance_id).
+
+3) Developer identity resolution (conservative, auditable)
+Merge rules: exact email equality -> high-confidence merge; normalized email equality (lowercase, strip +/- tags) -> high; identical email local-part with different domains -> require corroboration (shared commits or same author name) -> medium; name-only similarity (Levenshtein ≤2 or token overlap) requires corroborating evidence -> low and flagged for manual review. Never auto-merge distinct emails without corroboration. The developer_resolution_log will record raw identities, canonical_id, merge_decision, evidence_items, confidence_score, timestamp, and operator_id. Public releases will contain only HMAC(project_salt, canonical_id) with salts kept offline; controlled-access salts handled under DUA and escrow if needed.
+
+4) Build-metadata heuristics & confidence scoring
+We will extract config.h, Kconfig, CMakeCache.txt, configure.ac, compile_commands.json, and per-TU flags when available. Mapping confidence: High (0.9) if per-TU compile_commands.json or explicit mapping in config files; Medium (0.6) if mapping inferred from Kconfig/CMake options or repeated macro patterns; Low (0.2) if mapping based solely on name heuristics or corpus frequency. All mapping provenance is stored per-feature mapping.
+
+5) Generated/vendor code blacklist/whitelist
+We will whitelist src/, lib/ (project-specific) and blacklist vendor/, third_party/, generated/, build/, and files containing @generated or matching common generator patterns. Scancode-toolkit and path heuristics will produce per-project lists and we will report fraction of variable-span mass excluded by blacklists.
+
+6) Labeling protocol and VES weight learning
+Run a 100-label pilot to estimate prevalence; then stratify to ~400 labels across projects/languages/variable-density to target ±5% CI for precision/recall. For VES weights, we will learn weights by optimizing predictive performance on a held-out survey/interview-validated expert set (logistic regression with regularization), provide an expert-weight baseline, and publish sensitivity analyses (weight grid, Spearman/top-k stability).
+
+7) Compute, CI, provenance, timeline
+Pilot estimate: ~200 CPU-hours, ~200 GB disk, peak node RAM 32–64 GB. Full run: ~5,000 CPU-hours, ~4 TB Parquet, peak node RAM 128 GB. I will produce container images, deterministic CI smoke tests (seeded randomness, checksum comparisons), Parquet schema, and W3C-PROV manifests. Owners and next steps: I will deliver the libgit2 extractor, blob-cache, Parquet schema, developer_resolution_log template, and CI within two sprints; Variability Lead runs parser comparisons and labeling pilot in parallel. Success criteria: pilot detection precision ≥90% and recall ≥85%, reproducible pilot artifacts, and documented provenance/confidence for all mappings."
+Expertise Metrics Scientist: "Thank you — I endorse the proposed pipeline and offer a concise, actionable plan for metric construction, validation, and governance that ties directly to the Meeting 1 deliverables and the high-priority feedback.
+
+Metric design and VES construction: I will compute baseline metrics (total commits, lines added/removed, file ownership, tenure, co-edit centrality) and variable-aware metrics (variable-commit-count, variable-lines-added/removed, variable-churn-ratio, variable-file-count, variable-ownership, feature-diversity, recency-weighted activity, and focusedness/Gini). The Composite Variable Expertise Score (VES) will be built from per-project z-normalized components; we will learn weights by optimizing predictive performance (regularized logistic regression or gradient-boosting) on a held-out validation set of survey/interview-validated experts and publish an expert-weight baseline. We will report sensitivity via weight-perturbation grids, Spearman rank stability, and precision@k/nDCG.
+
+Validation, sampling, and ground truth: we will run a 100-label pilot to estimate prevalence and then target ~400 stratified labels (by project, language, and detected variable-density) to achieve ≈±5% 95% CI on precision/recall for proportions near 50%; two annotators, Cohen’s kappa, and adjudication will be used. Pre-registered fallback validations include OWNERS and code-review traces, peer nomination from surveys, and small expert interviews if survey response is low.
+
+Parser/tool evaluation and build-metadata linking: we will evaluate libclang, gcc -E, TypeChef, and SuperC across the three pilots (Linux kernel, FFmpeg, LibreOffice) for precision/recall/F1, runtime, peak memory, and parser-span agreement. Build artifacts to extract include config.h, Kconfig, CMakeCache.txt, configure.ac, and compile_commands.json; confidence scores will be High (0.9) for explicit per-TU flags or direct mappings, Medium (0.6) for heuristics/Kconfig-based inference, and Low (0.2) when only name heuristics or corpus frequency support mapping. All mappings will store provenance.
+
+Generated/vendor code and identity resolution: we will apply a blacklist/whitelist policy (blacklist vendor/, third_party/, generated/, files with @generated; whitelist canonical src paths), quantify excluded variability mass, and publish per-project lists. Developer merges will be conservative: exact email or normalized email match -> high-confidence merge; name-only or domain-different matches require corroborating evidence and are flagged; every decision and evidence is recorded in a developer_resolution_log. Public releases will use HMAC(project_salt, canonical_id) with salts stored offline and raw resolution tables available under DUA/escrow for approved researchers.
+
+Statistical and reproducibility safeguards: power simulations will be published with explicit parameters (ICC ranges, per-project developer distributions, skewness assumptions) and used to justify detectable effect sizes. Predictive evaluations will use temporal splits (train on history up to T, test on after T), de-duplicate files across splits, and report calibration. CI will be deterministic (seeded) and containers, Parquet schema, DUA templates, and W3C-PROV manifests will be prepared.
+
+Compute and timeline: pilot estimates are ~200 CPU-hours, ~200 GB disk, peak RAM 32–64 GB; full run ~5,000 CPU-hours, ~4 TB Parquet, peak RAM 128 GB. Next steps: I will implement metric computation integrated with the blob-cache, run the 100-label pilot this week, learn initial VES weights on pilot labels, and deliver a pilot-results memo with sensitivity analyses and predictive baselines within six weeks."
+Statistical Design Lead: "Summary and concrete statistical plan for Meeting 1 — concise, actionable, and owner-assigned.
+
+Primary deliverables (by end of Meeting 1)
+- Run 3 pilots (Linux kernel, FFmpeg, LibreOffice) to evaluate parsers and collect a 100-label pilot. Owners: Repo Engineer (extractor, caching, provenance), Variability Lead (parsers, labeling guidelines), Qual Lead (labeling execution).
+- Deliver simulation scripts, pre-registered analysis plan, and initial mixed-model specifications. Owner: Statistical Design Lead.
+- Produce VES candidate components, learned-weight baseline on pilot labels, and sensitivity grid. Owner: Expertise Metrics Scientist.
+- Containerized CI + DUA/identity-log template and provenance manifest. Owner: Reproducibility Steward.
+
+Statistical hypotheses and primary outcomes
+- H1 (concentration): measure Gini, Lorenz, and top-k shares of variable edits per project; test against permutation nulls (retain per-developer total edits).
+- H2 (metric validity): compare predictive performance (AUC, precision@k, nDCG) of conventional metrics versus variable-aware metrics for identifying variable experts.
+
+Modeling specifications (to implement)
+- Binary expert label: glmer(expert ~ conventional_metrics + variable_metrics + tenure + I(log(total_commits+1)) + (1|project) + (1|developer), family=binomial).
+- Continuous variable activity: lmer(log(variable_edits+1) ~ conventional_metrics + variable_metrics + tenure + (1|project) + (1|developer)).
+- Report fixed effects with 95% CIs, marginal/conditional R2, ICCs, and diagnostics.
+
+Power / simulation plan (parameters to publish)
+- Projects = 25; developers per project mean 200 with heavy right skew (Pareto alpha=1.5); ICC range 0.01–0.20; baseline prevalence of expert label 5–15% by project.
+- Effect-size targets: OR in 1.3–1.6 range for predictors; AUC differences 0.05–0.10.
+- Simulate 1,000 datasets per parameter set; quantify power to detect OR=1.4 and AUC delta=0.05 at 80% and 90% power. All seeds and DGP scripts will be published.
+
+Sampling, labeling, and CIs
+- Pilot: 100 stratified labels to estimate prevalence and variance. Full ground-truth labelling: ~400 stratified labels across projects/languages/variable-density to target ±5% 95% CI on precision/recall near 50%. Two annotators, Cohen’s kappa, adjudication.
+
+Temporal splits and leakage control
+- Use time-sliced evaluation: train on commits ≤T, test on >T. Report two leakage-robust settings: (A) file-level split (new files in test) and (B) developer-level split (hold out developers) to test generalization. De-duplicate files and remove any exact-copy blobs across splits prior to training.
+
+Multiple testing and inferential hierarchy
+- Pre-specify primary outcomes (Gini concentration and AUC difference). For exploratory per-project tests apply Benjamini–Hochberg FDR at 5%. Use hierarchical mixed models to borrow strength and reduce multiplicity where possible.
+
+Sensitivity and robustness checks
+- Vary parser outputs (libclang, gcc -E, TypeChef, SuperC), include/exclude blacklisted vendor/generated code, perturb VES weights, and inject label noise (5–20%) to assess stability. Report rank-stability (Spearman) and top-k overlap across variants.
+
+Success criteria (pilot)
+- Parser detection precision ≥90% and recall ≥85% on pilot labels; VES yields ΔAUC ≥0.05 over conventional metrics on pilot validation; reproducible, seeded CI smoke tests pass.
+
+Immediate next steps (week 1)
+- I will publish simulation DGPs and model code, run 100-label pilot power check, and pre-register primary outcomes and modeling choices. Repo Engineer and Variability Lead will start extractor + parser runs; Expertise Metrics Scientist will compute initial VES components for pilot and run weight-learning on pilot labels."
+Qualitative Methods Specialist: "I will take ownership of the qualitative validation component and deliver instruments, a reproducible codebook, and a concrete mapping from themes to metric revisions that integrate with the quantitative pipeline and provenance rules.
+
+Sampling and recruitment: I will draw a purposive sample from the mined dataset that maximizes information value: all top variable-activity contributors (top 1–5% per project), a stratified random sample of medium and low-variable contributors, and a set of ambiguous/merged identities flagged by the developer-resolution_log. Target response goals are 150–300 survey completions and 25–40 semi-structured interviews across the three pilot repos initially; if response is low we will deploy fallback validation using OWNERS/code-review traces, peer nominations in issues/PRs, and 10–15 focused expert interviews identified by project stewards.
+
+Instruments and bias mitigation: I will draft a short (10–12 minute) anonymous survey and a 45–60 minute semi-structured interview guide. The survey will use neutral wording, forced-choice frequency estimates, vignettes about variable-code edits, and an open nomination field for “who would you consult about feature-guard changes.” To reduce social desirability bias I will offer an anonymous response option, avoid prestige-laden phrasing, and include indirect measures (e.g., workload trade-off scenarios). All instruments will be pre-registered before deployment and provided for IRB review.
+
+Coding and analysis plan: I will produce an a priori codebook aligned to theory-driven codes (expertise recognition, ownership vs reviewer roles, onboarding friction, tooling/practice, perceived cost of variability) and allow inductive codes for emergent themes. Two coders will double-code 20% of transcripts, compute Cohen’s kappa (target >0.7), reconcile discrepancies, and finalize the codebook. Thematic analysis will produce cross-case matrices linking developer categories to themes, exemplar anonymized quotes, and frequency counts.
+
+Mapping qualitative findings to metric revisions: I will operationalize explicit mapping rules. For example, if a majority (>50%) of interview-nominated experts stress config-file maintenance as the primary expertise signal, we will add a separate “config-maintainer” metric and either (a) learn its weight in VES via the held-out expert validation set or (b) elevate its baseline weight in expert-driven VES. If interview data indicate reviewer/gatekeeper roles matter, we will incorporate reviewer-centrality (code-review approvals, reviewer mentions) into VES. All mapping decisions will be recorded with provenance and a decision rule (thresholds for inclusion/weight change).
+
+Deliverables, timeline, and governance: within 2 weeks I will deliver pilot survey and interview drafts, run a 20-response survey pilot and 4 interviews, and produce a pilot codebook. Within 8–12 weeks I will deliver the full survey results, coded transcripts (anonymized), the codebook, a thematic report, the expert-nomination list for VES weight learning, and a mapping matrix that specifies concrete metric changes and their justification. All raw qualitative data will be stored under access controls; anonymized outputs and the codebook will be published openly, and raw mappings tied to developer IDs will be released only under the project DUA and IRB safeguards."
+Reproducibility & Data Steward: "I will implement and maintain a reproducible, privacy-conscious artifact and data-governance layer that enables the pilot runs and full study while protecting contributor identities and preserving provenance.
+
+Containers, CI, and deterministic smoke tests: I will supply versioned Docker and Singularity images that bundle the libgit2 extractor, all parsers (libclang, gcc -E, TypeChef, SuperC where licensed), and analysis scripts; each image will include an entrypoint to run a seeded smoke test on a bundled mini-repo and emit checksums of key outputs. GitHub Actions will build images, run unit tests, execute the smoke-run (checksum comparison), and publish artifacts; all randomness will be seeded and tool versions pinned to ensure determinism.
+
+Data schema, provenance, and artifacts: I will publish Parquet schemas and a relational DDL for commits, files, blobs, variable_spans, edits, developers, and provenance. Every derived artifact will include a W3C-PROV manifest recording tool name/version, command line, parser_id, parser_version, timestamp, and input blob_sha so every result is auditable.
+
+Developer identity resolution and publishing policy: raw author metadata will be retained internally; public releases will contain only pseudonymous IDs computed as HMAC(canonical_id, unrecoverable_project_salt) where salts are per-project and stored offline. I will publish a developer_resolution_log that records raw identities, canonical_id, merge_decision, evidence_items, confidence_score, timestamp, and operator_id but release only the pseudonymized view publicly. For controlled-access replication, salts and raw resolution tables may be escrowed to a neutral institutional custodian or released under DUA with IRB-verified justification; no salts will be published openly.
+
+Anonymization, DUA, and access tiers: I will produce two release tiers: open derivatives (aggregated metrics, labeled samples, variable-span examples, scripts) deposited on Zenodo with DOI and CC-BY, and a controlled-access tier (raw annotated commit lists, identity mappings) available under a DUA. The DUA template will require institutional affiliation, IRB/ethics approval or exemption, security controls, a prohibition on re-identification, specific permitted uses, data destruction timelines, and citation/attribution rules.
+
+Licensing and vendor/code exclusion: I will run scancode-toolkit over each repo to identify licenses and flag incompatible projects. I will publish per-project blacklist/whitelist manifests (vendor/, third_party/, generated/ patterns) used during extraction and report the fraction of detected variability excluded by blacklists as QC.
+
+Compute, storage, timeline, and deliverables: pilot (Linux kernel, FFmpeg, LibreOffice) estimated at ~200 CPU-hours, ~200 GB disk, peak RAM 32–64 GB; full study ~5,000 CPU-hours, ~4 TB Parquet, peak node RAM 128 GB. Deliverables in two sprints: containers, CI, Parquet schema, DMP & anonymization plan, and DUA template within ~4 weeks; reproducible pilot outputs, developer_resolution_log template, and provenance manifests within ~6 weeks.
+
+Immediate next steps: finalize per-project blacklist rules with the leads, seed the smoke-test mini-repo with representative edge cases, and publish the initial manifest.json and Parquet schema so parser and extractor teams can begin pilot runs against deterministic CI."
+Variability Analysis Lead: "Summary of decisions, sampling targets, validation, heuristics, fallbacks, calibration, leakage controls, fairness checks, human-in-the-loop rules, owners, and deliverables.
+
+1) Labeling sample-size & oversampling strategy
+- Pilot: 100 stratified labels (2 weeks) to estimate prevalence per project/language.  
+- Ground truth targets: aim for ~400 positive variable-span labels (positives = spans marked variable), plus ~400 negatives for balanced validation. Because low prevalences inflate total labels, use two-stage sampling: (a) stratified random sample of all files for unbiased prevalence estimate; (b) targeted oversampling of likely-variable files (heuristics: presence of conditionals, macro-names like CONFIG_/ENABLE_, Kconfig references, compile_commands hits) to efficiently reach 400 positives. This keeps total human labeling budget typically between ~500–2,000 depending on prevalence (example: at 5% prevalence expect ~8k random labels to reach 400 positives, so we instead oversample to reach 400 positives with ~1,000–1,500 labels). Stopping rule: stop when 400 positives collected OR calibration/precision CI targets met (see next).
+
+2) Power / precision-recall justification
+- Use binomial CI: for ±5% margin at 95% CI, n≈385 (worst-case). Thus require ≈385 positive-labelled spans to estimate recall/precision with ±5%. For low prevalence (1–5%), oversampling is required to collect these positives without prohibitive total labels. We will publish simulation scripts (seeds) showing detectable AUC differences (ΔAUC 0.05) and ORs (1.3–1.5) with our planned labeling and developer counts.
+
+3) Stratified ground-truth by directive complexity
+- Strata: simple guards (#ifdef/#if with single macro), nested directives (depth ≥2), macro-expanded code (macros that expand to code), conditional macros (expressions with defined/undefined and arithmetic), generated-file patterns, mixed-language cases. Minimum per-stratum target: 50 positives where feasible (prioritize nested and macro-expanded strata). Adjust budget if strata scarcity observed in pilot.
+
+4) Calibration & per-project reporting of confidence scores
+- Compute reliability diagrams, Brier score and Expected Calibration Error (ECE) per project on pilot labels. Apply isotonic regression or Platt scaling per-project when beneficial. Report pre- and post-calibration reliability plots and per-project recalibrated buckets (High/0.9, Medium/0.6, Low/0.2) with bootstrap CIs.
+
+5) Identity-resolution benchmark & metrics
+- Create a held-out manual gold set (~500 raw identities across projects) for evaluation. Report precision/recall/F1 for merges, plus false-merge and false-split rates. Quantify VES and concentration sensitivity by simulating merge error rates (±5/10/20%) and reporting induced bias on Gini and top-k shares.
+
+6) Vendor/generated-code detection heuristics & targeted sampling
+- Use scancode + path heuristics + content heuristics (common generator headers, “@generated”, copyright generator lines), build output path patterns, and compile artifact mappings. Perform targeted sampling: randomly sample 200 blacklisted files and 200 whitelist files to estimate false-negative and false-positive rates of blacklist rules.
+
+7) Parser fallback strategy & licensing constraints
+- Primary order: libclang (C/C++) with preprocessor callbacks -> gcc -E with line markers (fast fallback) -> TypeChef/SuperC where buildable and licensed -> best-effort textual parser for edge cases. Document license and build constraints for TypeChef/SuperC per project; when TypeChef/SuperC cannot be used, fallback to gcc -E + heuristic handling. Record parser_id/version in provenance.
+
+8) Pre-registration checklist & artefacts
+- Pre-register primary/secondary outcomes, DGP seeds, temporal splits, leakage rules, sample sizes, CI targets, and analysis scripts. Publish containerized code, labeled pilot data, and pre-registration on OSF/Zenodo (DOI) before full runs.
+
+9) Leakage-detection & ambiguous-case rules
+- File-copy detection: identical blob_sha or content-similarity ≥95% -> flag as copy and exclude from cross-split leakage. Cherry-pick heuristics: identical patch hunks with differing commit timestamps but same diff text -> flag and exclude across temporal splits. Ambiguous cases go to manual review.
+
+10) Subgroup fairness analyses
+- Subgroups: newcomers (first commit <6 months), domain specialists (config/BUILD-only commit dominance), organization-affiliated (email domain), and sporadic contributors (<5 commits). Test systematic VES bias via stratified performance (precision/recall) and mixed-effect interaction terms; report subgroup calibration and disparate-impact metrics.
+
+11) Human-in-the-loop thresholds and adjudication
+- Mandate manual adjudication when any of: confidence ≤0.6, parser disagreement across tools on span boundaries >30%, identity-merge confidence <0.5, per-feature editor-count <10, or qualitative flag from interviews. Adjudication workflow: two independent annotators + senior adjudicator; record decisions in provenance.
+
+Owners & deliverables
+- Variability Analysis Lead (me): implement sampling, parsers/fallbacks, confidence calibration, and deliver pilot 100-label set and calibration report in 2 weeks, full stratified ground truth and calibration in 6 weeks.  
+- Repo Engineer: extractor, blob-cache, identity-resolution pipeline, and held-out identity gold set in 4 weeks.  
+- Reproducibility Steward: containers, pre-registration deposit, and OSF/Zenodo artefacts in 4 weeks.  
+- Qual Lead & Stats Lead: qualitative instruments and power simulations in 2–4 weeks.
+
+I will begin the 100-label pilot this week, publish calibration scripts and seeds, and coordinate the adjudication workflow and provenance logging with the team."
+Repository Mining Engineer: "Summary of my concrete implementation plan, sampling targets, validation checks, and owners with deliverable dates aligned to the team’s feedback and Meeting 2 objectives.
+
+Sampling, power and labeling targets: to estimate precision/recall to ±5% (95% CI) we need ≈385 positive labels; therefore we will aim for 400 positive variable-span labels plus ≈400 negatives. Because prevalence varies, we will use two-stage sampling: (1) a stratified random sample across projects/languages/variable-density to estimate prevalence (pilot 100 labels, 2 weeks) and (2) targeted oversampling of likely-variable files (heuristics: CONFIG_/ENABLE_, presence of conditionals, Kconfig references, compile_commands hits) to efficiently collect positives. With prevalences of 1–5% we expect total labeling budgets of 1,000–1,800 using oversampling versus prohibitive ~8k labels for pure random sampling. Full stratified ground-truth (all strata) will be delivered in ~6 weeks.
+
+Stratified ground truth by directive complexity: I will extract strata and ensure minimum per-stratum targets where feasible: simple guards, nested directives (depth ≥2), macro-expanded code, conditional macros (complex expressions), generated-file patterns, and mixed-language cases; target at least 50 positives per non-rare stratum and prioritize nested/macro-expanded cases during oversampling.
+
+Confidence calibration and per-project reporting: using pilot labels we will compute reliability diagrams, Brier score and ECE per project and apply isotonic regression or Platt scaling per-project when beneficial. We will publish pre- and post-calibration plots and recalibrated bucket thresholds (High 0.9, Medium 0.6, Low 0.2) with bootstrap CIs.
+
+Identity-resolution benchmark and metrics: I will build a held-out gold set of ~500 raw identities across projects and report merge precision/recall/F1, false-merge and false-split rates. I will quantify downstream effects by simulating merge error rates (±5/10/20%) and measuring induced bias on Gini and top-k shares.
+
+Generated/vendor-code detection and targeted sampling: beyond scancode we will use content heuristics (generator headers, “@generated”, build-output paths), path heuristics, and compile artifact patterns. We will estimate false-negative rates by sampling 200 blacklisted and 200 whitelisted files per pilot and report FNR/FPR per project.
+
+Parser fallback and licensing/documentation: primary parser order will be libclang (preprocessor callbacks) -> gcc -E with line markers -> TypeChef/SuperC where buildable and license-permitted -> best-effort textual heuristics. For each project we will document parser availability, build constraints, and fallback used in provenance metadata.
+
+Leakage-detection rules: identical blob_sha or content similarity ≥95% marks file-copy and excludes across temporal splits; identical patch hunks with differing timestamps or same diff text mark cherry-picks and are flagged; ambiguous cases go to manual review.
+
+Subgroup fairness tests: define newcomers (first commit within 6 months), domain-specialists (>60% edits in config paths), org-affiliated (email domain), and sporadic contributors (<5 commits). We will evaluate per-subgroup precision/recall, calibration and interaction terms in mixed models and report disparities.
+
+Human-in-the-loop thresholds and adjudication: mandate manual adjudication when confidence ≤0.6, parser-span disagreement >30% relative boundary mismatch, identity-merge confidence <0.5, feature editor-count <10, or qualitative flags arise; adjudication requires two annotators + senior adjudicator and is logged in developer_resolution_log provenance.
+
+Owners and deliverables: I will deliver the libgit2 extractor, blob-cache schema, edits mapping, developer_resolution_log template and pilot 100-label extraction in 2 weeks; held-out identity gold set and containerized CI + provenance manifests in 4 weeks; full stratified ground truth, calibration report, and targeted sampling estimates in 6 weeks."
+Expertise Metrics Scientist: "Below I specify concrete, actionable decisions for sampling, labeling, calibration, identity-benchmarking, heuristics, parser fallbacks, pre-registration artefacts, leakage controls, subgroup tests, human-in-the-loop rules, and owners/deliverables aligned with team roles.
+
+Sampling, power, and oversampling
+- Ground-truth target: collect ≈400 positive variable-span labels and ≈400 negatives to achieve ≈±5% (95% CI) for precision/recall near 50% (binomial n≈385).  
+- Two-stage strategy: stage 1 = stratified pilot (100–200 labels across projects/languages/variable-density) to estimate prevalence; stage 2 = targeted oversampling of likely-variable files (heuristics: CONFIG_/ENABLE_, conditional tokens, Kconfig references, compile_commands hits) to reach 400 positives. This keeps total labels typically 1,000–2,000 at low prevalences (1–5%) versus prohibitive pure-random budgets. Use inverse-probability weights to recover unbiased population estimates where needed.
+
+Stratified ground-truth by directive complexity
+- Strata: simple guards (#ifdef/#if single macro), nested directives (depth ≥2), macro-expanded code, conditional macros (complex expressions), generated-file patterns, and mixed-language cases. Aim for ≥50 positive labels per non-rare stratum; prioritize nested and macro-expanded cases in oversampling.
+
+Calibration & per-project reporting
+- For each project compute reliability diagrams, Brier score, and ECE on pilot labels. Apply isotonic regression or Platt scaling per project as needed and publish pre/post-calibration plots plus bootstrap CIs for buckets (High=0.9, Medium=0.6, Low=0.2).
+
+Identity-resolution benchmark & impact quantification
+- Build a held-out gold set (~500 raw identities across projects). Report merge precision/recall/F1 and false-merge/false-split rates. Quantify downstream effects by simulating merge-error scenarios (±5/10/20% merge/split rates) and measuring bias on VES, Gini, and top-k shares.
+
+Vendor/generated-code detection & targeted sampling
+- Combine scancode-toolkit + path heuristics + content-header regexes (e.g., “@generated”, generator banners) + build-output patterns. Estimate false-negative rate via targeted sampling (e.g., 200 blacklisted and 200 whitelist files per pilot) and report per-project FNR/FPR.
+
+Parser fallback strategy & licensing
+- Parser order: libclang (preprocessor callbacks) -> gcc -E with line markers -> TypeChef/SuperC when buildable and license-permitted -> best-effort textual heuristics. Document per-project parser availability, build constraints, and fallback used in provenance metadata.
+
+Pre-registration artefacts
+- Publish OSF/Zenodo deposit before full runs including: pre-registered analysis plan, primary/secondary outcomes, DGP seeds, temporal splits, leakage rules, sample-size rationale, container images/versions, pilot labels, and analysis scripts (with DOI).
+
+Leakage-detection rules
+- Exclude from cross-split training any file with identical blob_sha or content-similarity ≥95% (file-copy). Flag and exclude cherry-picked commits detected by identical diff text across timestamps. Ambiguous cases routed to manual review.
+
+Subgroup definitions and fairness checks
+- Define newcomers (first commit ≤6 months), domain-specialists (>60% config/path edits), org-affiliated (email domain), and sporadic contributors (<5 commits). Report stratified precision/recall, calibration, interaction terms in mixed models, and disparate-impact statistics.
+
+Human-in-the-loop & adjudication workflow
+- Automatic triage: require manual adjudication when confidence ≤0.6, parser-span disagreement >30% boundary mismatch, identity-merge confidence <0.5, feature-editor count <10, or qualitative flags. Adjudication = two independent annotators + senior adjudicator; record full provenance and rationale.
+
+Owners & near-term deliverables
+- I (Expertise Metrics Scientist): publish power/simulation scripts, initial VES weight-learning on pilot labels, deliverable in 2 weeks.  
+- Variability Lead: run 100-label pilot, parsers, and stratified labeling in 2–6 weeks.  
+- Repo Engineer: extractor, blob-cache, identity gold set in 4 weeks.  
+- Reproducibility Steward: containers, OSF/Zenodo pre-registration deposit, and provenance manifests in 1–2 weeks.  
+- Qual Lead: survey/interview instruments and pilot in 2–4 weeks.
+
+I will start the power simulations and VES pilot-weight learning immediately and coordinate the targeted oversampling plan with the Variability and Repository leads."
+
+**Instructions:**
+Based on your expertise, assigned role, and the feedback you received, provide a thoughtful and technically sound response to the current task or situation.
+Your response should reflect your specialization, align with your goal, and demonstrate collaboration within the research context.
+
+Output ONLY in STRING format (try to form understandable and research oriented complete sentences, do not just generate characters or words, try to be on the context and use have clarity and generate full well-structured sentences).
+DO NOT HAVE ANY EMPTY CHARACTERS OR PLACEHOLDERS IN YOUR RESPONSE. RESPONSE SHOULD BE IN COMPLETE WELL-STRUCTURED SENTENCES. (priority : very high), KEEP IN MIND THAT YOUR RESPONSE SHOULD NOT BE TOO LONG KEEPING ITS RESPONSE UNDER 450-500 WORDS.
+Your Response:
+
+------------------------------------------------------------
+
+RESPONSE:
+------------------------------------------------------------
+Below I summarize concrete statistical decisions, sample-size targets, stratified labeling, calibration, benchmarking, heuristics, parser fallbacks, pre-registration checklist, leakage rules, subgroup tests, human-in-the-loop thresholds, owners, and short deliverable timetable.
+
+1) Power and sampling targets
+- Precision/recall CI targets: to estimate precision or recall to ±5% (95% CI) we need ≈385 positive labels (binomial n≈385). Aim for 400 positive variable-span labels and 400 negatives overall.  
+- Low-prevalence strategy: use two-stage sampling — stage A pilot stratified random sample (100–200 labels) to estimate prevalence; stage B targeted oversampling of likely-variable files to collect 400 positives. With prevalences 1–5% this keeps total labels ≈1,000–2,000 rather than tens of thousands.  
+- Multilevel power: publish simulation-based power grids (25 projects, mean developers/project≈200, ICC 0.01–0.20) to show power to detect OR≈1.3–1.5 and AUC deltas 0.05–0.10; I will produce these scripts and seeds.
+
+2) Stratified ground-truth scheme
+- Strata: simple guards, nested directives (depth≥2), macro-expanded code, conditional macros (complex expressions), generated-file patterns, and mixed-language cases. Aim ≥50 positives per non-rare stratum; prioritize nested and macro-expanded strata in oversampling.
+
+3) Calibration & per-project reporting
+- For each project compute reliability diagrams, Brier score, and ECE on pilot labels. Apply per-project isotonic regression or Platt scaling where beneficial and publish pre/post-calibration plots and bootstrap CIs for numeric buckets (High=0.9, Medium=0.6, Low=0.2).
+
+4) Identity-resolution benchmark & impact quantification
+- Create held-out gold set (~500 raw identities) and report precision/recall/F1 plus false-merge/false-split rates. Quantify downstream effects by simulating merge/split error scenarios (±5/10/20%) and reporting induced bias on Gini and top-k concentration statistics.
+
+5) Vendor/generated-code detection & targeted sampling
+- Combine scancode-toolkit, path heuristics (vendor/, third_party/, generated/), content-header regexes (“@generated”, generator banners), and build-output patterns. Estimate false-negative/positive rates by targeted sampling (e.g., 200 blacklisted and 200 whitelist files per pilot).
+
+6) Parser fallback strategy & licensing
+- Parser order: libclang (preprocessor callbacks) → gcc -E (line markers) → TypeChef/SuperC when buildable and license-permitted → best-effort textual heuristics. Document per-project licensing/build constraints in provenance and record parser_id/version for every span.
+
+7) Pre-registration checklist & artefacts
+- Pre-register primary/secondary outcomes, DGP seeds, temporal splits, leakage rules, sample-size rationale, analysis scripts, and containers on OSF/Zenodo before full runs; deposit DOI and publish versioned updates with change log.
+
+8) Leakage-detection rules
+- Exclude across splits any file with identical blob_sha or content similarity ≥95%. Detect cherry-picks by identical hunks/diffs across different timestamps and flag for exclusion; route ambiguous cases to manual review.
+
+9) Subgroup definitions & fairness tests
+- Subgroups: newcomers (first commit ≤6 months), domain-specialists (>60% config-path edits), org-affiliated (email domain), sporadic contributors (<5 commits). Report stratified precision/recall, calibration, interaction terms in mixed models, and apply FDR correction for multiple subgroup tests.
+
+10) Human-in-the-loop & adjudication workflow
+- Require manual adjudication when any: confidence ≤0.6, parser-span disagreement >30% boundary mismatch, identity-merge confidence <0.5, feature-editor-count <10, or qualitative flag arises. Adjudication involves two independent annotators and a senior adjudicator; all decisions recorded with provenance.
+
+11) Owners & deliverables (short timetable)
+- I (Statistical Design Lead): publish simulation scripts, model specs, and pre-registration draft within 1 week.  
+- Variability Lead: run 100-label pilot and parser comparisons in 2 weeks and deliver stratified labeling in 6 weeks.  
+- Repo Engineer: extractor, blob-cache, and identity gold set in 4 weeks.  
+- Reproducibility Steward: containers, CI, and OSF/Zenodo deposit within 2 weeks.  
+- Qual Lead: survey/interview pilot and expert nominations in 3–4 weeks.
+
+If you approve, I will publish the simulation seeds and pre-registration draft now and coordinate oversampling heuristics with Variability and Repo leads.
+============================================================
+
+

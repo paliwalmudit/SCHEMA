@@ -1,0 +1,965 @@
+
+============================================================
+TIMESTAMP: 2026-05-15 23:07:25
+============================================================
+
+PROMPT:
+------------------------------------------------------------
+
+You are Evaluation & Robustness Lead, an expert agent contributing to the research project on "Hypergraph Neural Network with State-Space Models for Node Classification".
+Research Description provided by human researcher initially: Hypergraph Neural Network with State-Space Models for Node Classification ,Core idea is: Propose HGMN, a model that integrates role-aware representations into GNNs by constructing hypergraphs to capture higher-order relationships and applying state-space modeling. A learnable transformer-like fusion mechanism combines role-based and adjacency-based embeddings; hypergraph convolution layers model complex dependencies, and residual connections mitigate over-smoothing. ,keywords to are: graph neural networks, hypergraph, state-space model, node classification, role-aware representations, hypergraph convolution, residual connections, hypergraph construction, transformer fusion ,other information:Introduce a hypergraph-based GNN that fuses role-based and adjacency-based features via state-space modeling and a learnable fusion mechanism to produce richer node representations for node classification tasks.
+
+**Agent Profile:**
+- Expertise: Experimental design, statistical evaluation, benchmarking for node classification, ablation studies, robustness/OOD testing, fairness and sensitivity analyses.
+- Role: Set benchmark baselines and metric suites, design ablation matrices (e.g., role vs adjacency, SSM vs no-SSM), run experiments with statistical rigor, evaluate robustness (perturbations, missing edges, domain shifts), and synthesize results for publication.
+- Goal: Define and execute a rigorous evaluation protocol: metrics, baselines, ablations, statistical tests, and robustness checks that convincingly demonstrate HGMN's benefits and limitations.
+
+**Previous Feedback Received (priority : high):**
+Initial No feedback
+
+guidance and questions for you by the Principal Investigator (priority : very high):
+Guidance: Initial No guidance
+
+ 
+Questions: ['Initial No questions']
+
+answer based on real-world knowledge and scientific principles:
+['continue, and try to be better.']
+
+**Current Task or Situation:**
+If any feedback was provided, address it in your response. Otherwise, respond to the current research task and explore the research area by giving ideas which fill the gaps in research according to your expertise.
+
+**Recent Conversation Log (last exchanges):**
+Hypergraph Architect: "Summary of proposed HGMN core architecture and design choices.
+
+Hypergraph construction.
+- Create two complementary hyperedge sets: role-based hyperedges and adjacency/feature hyperedges. Role hyperedges group nodes with similar structural roles obtained from role embeddings (e.g., struc2vec, role2vec, node signature clustering, or learned role encoder). Adjacency hyperedges capture local connectivity and feature similarity via k-nearest-neighbor in attribute space, ego-net expansion, and motif-based hyperedges (triangles, cliques).
+- Make hyperedges weighted. Initialize weights using TF-IDF-like scores for attribute hyperedges and inverse hyperedge size for role hyperedges, and refine weights via a small attention network trained end-to-end.
+
+Hypergraph representation and normalization.
+- Represent hypergraph with sparse incidence matrix H (nodes × hyperedges). Use normalized diffusion operator commonly used in HGNN: Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2}, where Dv and De are node and hyperedge degree diagonal matrices and We are learnable hyperedge weights. This preserves scale and stabilizes propagation.
+
+Hypergraph convolution modules.
+- Implement two parallel hypergraph convolution streams: one on role-hypergraph and one on adjacency-hypergraph. Use the normalized diffusion operator to propagate and then apply a linear transform and nonlinearity.
+- Optionally provide a spectral variant using hypergraph Laplacian eigenbasis for small graphs and a spatial variant using message passing on incidence structure for large graphs.
+
+State-space modeling integration.
+- Treat the layer-depth propagation (or multi-hop information) as a sequence and insert lightweight linear state-space model (SSM) modules (inspired by HiPPO/S4) to capture long-range dependencies across propagation steps per node. The SSM maintains a compact hidden state per node that aggregates information over many hops without stacking large numbers of layers.
+- For efficiency use diagonal-plus-low-rank transitions or convolutional SSM kernels and share SSM parameters across nodes.
+
+Fusion mechanism.
+- Fuse role-based and adjacency-based embeddings with a learnable transformer-like cross-attention: multi-head cross-attention where queries come from one stream and keys/values from the other, followed by gated residual fusion: fused = gate * role + (1-gate) * attn_output, where gate is sigmoid of a small MLP on concatenated streams. This combines expressivity and stability.
+
+Residuals and over-smoothing mitigation.
+- Use pre-activation residual connections and initial residual (add original features at each block). Include layer normalization, pair normalization or decorrelation regularizer, and stochastic edge/hyperedge drop (DropEdge variant) to limit oversmoothing. Allow adjustable skip weights learned per layer to modulate how much new information is mixed.
+
+Scalability and training.
+- Use sparse H, minibatch sub-hypergraph sampling (Cluster-GCN or neighborhood sampling), and efficient SSM parametrizations. Train with cross-entropy and optional Dirichlet energy regularizer to encourage discriminative embeddings.
+
+Recommended ablations and metrics.
+- Ablate hyperedge types (role vs adjacency), fusion methods (concat/gate/attention), SSM vs plain stacking, residual styles, and hyperedge weighting schemes. Evaluate node classification accuracy, macro/micro F1, robustness to sparsity, and over-smoothing via representation similarity and homophily sensitivity.
+
+Next steps.
+- Implement prototype in PyTorch Geometric with sparse incidence ops, run ablations on Cora, Citeseer, PubMed and synthetic role-based benchmarks, and analyze tradeoffs between SSM capacity and hyperedge complexity."
+State‑Space Modeling Specialist: "Summary and concrete SSM design for HGMN integration.
+
+1) High-level role of SSM. Treat multi-hop propagation depth (or successive hypergraph-conv blocks) as a temporal sequence per node and use a compact linear state-space model (SSM) to accumulate long-range information without stacking many layers. The SSM runs per embedding channel (shared parameters across nodes) and outputs a smoothed, long-range-aware version of the node embedding sequence that is then fused with the complementary stream via the transformer-like fusion.
+
+2) SSM formulation (continuous→discrete, implementable and stable). Use a stable continuous-time linear SSM dx/dt = Ax(t)+Bu(t), y(t)=Cx(t)+Du(t) with A parameterized to be negative definite on the real part (e.g., A = -R - S where R is diagonal with positive entries and S is skew-symmetric). Discretize with bilinear (Tustin) transform to obtain discrete matrices (Ad,Bd,Cd,Dd) for sequence steps corresponding to propagation hops. For efficiency and scalability use the convolutional kernel form: y = K * u, where K is the impulse response computed from the discretized SSM. Parameterize A as diagonal-plus-low-rank (A = diag(a) + U V^T) or use the HiPPO/S4 canonical parameterization when long memory is required.
+
+3) Numerical stability and gradient behavior. Constrain diag(a) to be negative via a softplus or exponential negative parameterization (a = -softplus(p)). Keep low-rank components small by weight decay and optionally spectral normalization. Precompute SSM kernels in double precision and cast to float32 for convolution. Use the convolutional implementation (FFT when kernel length L is large) rather than explicit recurrence for both speed and stable backpropagation. Clip gradients (norm 1.0) and use layer normalization before SSM inputs to stabilize scale.
+
+4) Implementation details compatible with hypergraph conv outputs.
+- Apply an SSM per stream (role-stream and adjacency-stream) with shared hyperparameters but separate weights (ablate share vs separate).
+- Treat the sequence length T as the number of hops/layers or precomputed diffusion depth (T in 8–64). Compute the node embeddings at each hop via hypergraph diffusion operator, form sequences of shape [batch_nodes, channels, T], and convolve along T with SSM kernel K of length L=T or >T.
+- Use per-channel SSM (C channels -> C independent kernels) or grouped channels (reduce parameter count) with diagonal-plus-low-rank across groups.
+- For minibatching/sub-hypergraph sampling reset node hidden states each batch; do not carry state across batches unless doing transductive full-graph training with persistent buffers.
+
+5) Hyperparameters and training tips.
+- Hidden state / channel groups: channels per SSM group 1 or small groups; overall SSM state size N per channel 16–64.
+- Kernel length L: set to T (8–32) for moderate tasks or 64–256 for long-range; compute kernels with FFT for L>64.
+- Optimizer: AdamW lr 1e-3 (warmup), weight decay 1e-5, dropout 0.1–0.3 on embeddings, gradient clipping 1.0.
+- Regularizers: small orthogonality/skew penalty on S to avoid drift, Dirichlet energy on final embeddings to encourage class separation.
+- Ablations: SSM vs no-SSM, diagonal vs diag+lowrank A, per-stream SSM vs shared SSM, convolutional kernel vs recurrent implementation.
+
+6) Integration with fusion and residuals. Run SSMs on each stream outputs, feed SSM outputs into the cross-attention fusion, and use gated residual blending (learned scalar per layer) and initial-residual connections to prevent oversmoothing.
+
+I can provide PyTorch-compatible pseudocode for convolutional SSM kernel computation and an efficient FFT-based conv implementation, and concrete initializers for HiPPO-like kernels if you want to proceed to implementation."
+Role Representation & Graph Mining Expert: "Below I specify a concrete, implementable pipeline for extracting, validating, and injecting role-aware representations into HGMN, plus practical design choices and evaluation criteria to preserve role semantics during fusion.
+
+1) Role-feature extraction (multi-view structural signatures).
+- Compute complementary structural descriptors per node: degree, k-hop degree sequence, egonet density, clustering coefficient, motif counts (triangles, squares), PageRank, heat kernel signatures, and per-hop aggregated degree histograms. Optionally add spectral positional encodings (top-k Laplacian eigenvectors) and WL subtree counts for richer structure.
+- Optionally run learned encoders: struc2vec/role2vec random-walk based embeddings and a lightweight MLP/GNN encoder trained to predict local signature histograms (self-supervised reconstruction) to produce continuous role embeddings.
+
+2) Multi-scale role embedding and clustering.
+- Standardize and concatenate structural views, then reduce dimension with PCA or an autoencoder to Drole (32–128).
+- Apply multi-scale clustering: run k-means at several K values (e.g., 8, 16, 32) and a hierarchical/agglomerative pass to capture coarse-to-fine roles. Also compute soft assignments using Gaussian-mixture or softmax over negative distances (temperature τ).
+- Create role prototypes (centroids) and store per-node role membership vector r (soft weights) and a max-role label for analyses.
+
+3) Hyperedge construction from roles.
+- Form role hyperedges by grouping nodes with high soft-membership to the same prototype (threshold θ or top-k per prototype). Use weighted hyperedges with weight w_e = membership_confidence * 1/|e| (inverse size) and optionally apply TF-IDF across attributes to bias informative clusters.
+- Limit hyperedge sizes (max-size S, e.g., 256) or split very large hyperedges into sub-hyperedges by community within the role to avoid dominance.
+
+4) Preserving role semantics during fusion and training.
+- Keep a separate projection head for role embeddings (Wr) and adjacency embeddings (Wa) to avoid mixing raw distributions; enforce approximate orthogonality between heads via small orthogonality loss to preserve complementary information.
+- Use the transformer-like cross-attention with queries from one stream and keys/values from the other; include a gating scalar g = sigmoid(MLP([role,adj])) that controls contribution of role prototype vs fused signal. Initialize gate bias to favor role input (e.g., g ~0.6) so role semantics are not overwritten early.
+- For soft role hyperedges, pass membership weights into attention as priors (bias keys/values) so nodes with stronger role-membership influence fusion more.
+
+5) Role regularization and interpretability.
+- Add a prototype contrastive loss (NT-Xent) or a triplet loss to pull nodes toward their prototype and push different prototypes apart. Add a cluster-entropy penalty to avoid degenerate single-cluster collapse.
+- Maintain a small set of anchor/prototype exemplars per role for interpretability; periodically output top exemplar nodes and summary statistics (degree distribution, motif profile).
+
+6) Validation and ablations.
+- Evaluate role quality with internal metrics (silhouette, NMI against synthetic ground-truth roles) and robustness metrics (role stability under edge/node perturbation). For downstream impact, ablate role hyperedges vs adjacency hyperedges, hard vs soft assignments, projection orthogonality, and gating initializations.
+- Use structural benchmarks (e.g., RoleBench, synthetic structural equivalence graphs) alongside Cora/Citeseer/PubMed to ensure roles generalize and improve node classification, particularly in low-homophily or feature-scarce regimes.
+
+7) Training strategy and hyperparameters.
+- Two-phase training: pretrain role encoder/self-supervised objective for several epochs, then fine-tune end-to-end with fusion; alternative is joint training with smaller learning rate on role encoder. Typical ranges: Drole 64, cluster Ks {8,16,32}, τ 0.1–0.5, θ 0.6, prototype loss weight 0.1–1.0.
+
+This pipeline yields robust, interpretable role hyperedges and embeddings that complement adjacency signals while preserving role semantics through projection decoupling, gating, and prototype-based regularization."
+Data Curation Specialist: "Summary and deliverables I will provide to support rigorous evaluation of HGMN:
+
+1) Recommended real-world dataset suite and provenance.
+- Citation networks: Cora, Citeseer, PubMed (original sources: https://linqs.soe.ucsc.edu, PubMed via SNAP/OGB). Use canonical node labels and bag-of-words features.  
+- Large academic graphs: OGBN-ArXiv and OGBN-Products (OGB benchmark: https://ogb.stanford.edu). Use their temporal/inductive splits where available.  
+- Bipartite/hypergraph-native data: DBLP (author–paper–venue), Yelp (user–business–review), 20 Newsgroups (document–word). Construct natural hyperedges (papers/documents). Provide source URLs and licenses.  
+- Low-homophily and structural-role benchmarks: Actor, Twitch, and synthetic RoleBench-like graphs (see synthetic section). Use datasets known for low feature-label correlation to stress role signals.
+
+2) Hyperedge construction heuristics and metadata.
+- Role hyperedges: derive role embeddings (struc2vec or structural signature PCA) then k-means (Ks = {8,16,32}) to obtain soft membership vectors. Create hyperedge per prototype; include fields: prototype_id, node_list, membership_weights, creation_method, K, clustering_seed. Limit hyperedge size (max_size = 256) and split oversized hyperedges. Initialize weight w_e = (avg_membership_confidence) * (1/|e|).  
+- Adjacency/feature hyperedges: build k-NN attribute hyperedges (k={8,16}), ego-net hyperedges (1–2 hop), motif hyperedges (triangles, cliques up to size 4). Store type, parameter k/motif_type, node_list, TF-IDF-like initial weight (tfidf_attr * 1/|e|).  
+- Normalization metadata: store Dv, De, We initial values and normalization scheme (Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2}).
+
+3) Synthetic benchmark generators (configurable scripts).
+- Planted-role graphs: create graphs with structural-equivalence roles by generating multiple role-classes where nodes share identical local patterns (e.g., regular subgraphs or identical ego-net topology), then connect role clusters with controlled cross-role edges. Parameters: N (1k–50k), C roles, avg_degree, homophily (0–1), noise_rewire. Output ground-truth role labels and hyperedges per role.  
+- Planted-community graphs (SBM / degree-corrected SBM) to test adjacency hyperedges. Vary homophily and feature-label correlation.  
+- Long-range dependency graphs: chains, ladders, and small-world (Watts–Strogatz) families to evaluate SSM capacity (vary diameter and shortcut probability).  
+- For each synthetic graph produce node features: (a) label-correlated Gaussian features, (b) random features, (c) TF-IDF-style sparse bag features. Provide scripts to vary label rate and feature noise.
+
+4) Standardized splits and reproducibility.
+- Provide deterministic stratified train/val/test splits: transductive standard (e.g., 20 labels/class train), low-label regimes (5,10,20 per class), randomized 10-fold cross-validation, inductive splits for OGB temporal datasets, and cluster-based inductive splits for generalization tests. Save splits as index files with seed and generator version.  
+- Recording: dataset README, full provenance (download URLs, original checksum), preprocessing steps (normalization, tokenization, PCA), code versions, random seeds, and license. Provide incidence matrices in sparse format, hyperedge metadata JSON, and scripts to reconstruct hyperedges.
+
+5) Evaluation and ablation setup.
+- Provide baseline split sets and scripts to run ablative variants: no-role hyperedges, only-role, only-adjacency, varying hyperedge weighting, and noisy hyperedge injection. Include evaluation metrics: accuracy, macro/micro F1, homophily sensitivity, and representation similarity/oversmoothing diagnostics.
+
+I will prepare the datasets, hyperedge construction code, split files, and documentation notebooks to ensure reproducible experiments for HGMN."
+
+**Instructions:**
+Based on your expertise, assigned role, and the feedback you received, provide a thoughtful and technically sound response to the current task or situation.
+Your response should reflect your specialization, align with your goal, and demonstrate collaboration within the research context.
+
+Output ONLY in STRING format (try to form understandable and research oriented complete sentences, do not just generate characters or words, try to be on the context and use have clarity and generate full well-structured sentences).
+DO NOT HAVE ANY EMPTY CHARACTERS OR PLACEHOLDERS IN YOUR RESPONSE. RESPONSE SHOULD BE IN COMPLETE WELL-STRUCTURED SENTENCES. (priority : very high), KEEP IN MIND THAT YOUR RESPONSE SHOULD NOT BE TOO LONG KEEPING ITS RESPONSE UNDER 450-500 WORDS.
+Your Response:
+
+------------------------------------------------------------
+
+RESPONSE:
+------------------------------------------------------------
+Below I specify a concise, rigorous evaluation and robustness protocol to validate HGMN’s claimed benefits and limitations. The plan covers datasets, baselines, ablation matrix, metrics, robustness/OOD tests, statistical methodology, and reporting requirements.
+
+Datasets and splits:
+Evaluate on canonical citation graphs (Cora, Citeseer, PubMed), OGBN-ArXiv (inductive), synthetic role-bench graphs (planted-role), and at least one low-homophily real graph (e.g., Twitch/Actor). Use standardized transductive splits (20 labels/class), low-label regimes (5,10,20 per class), and inductive/temporal splits for OGB. Run each experiment with 30 independent seeds where feasible and provide split files for reproducibility.
+
+Baselines:
+Compare to strong baselines: GCN, GAT, GraphSAGE, APPNP, HGNN/HyperGCN, HNHN (hypergraph neural models), a role-only pipeline (struc2vec/role2vec + MLP), and a transformer/attention-based GNN. Include ablation models from HGMN family: HGMN without SSM, HGMN with RNN/LSTM instead of SSM, HGMN without role hyperedges, and HGMN without adjacency hyperedges.
+
+Ablation matrix (priority order):
+1) Role vs adjacency hyperedges (only-role, only-adj, both). 2) Fusion variants (concat, gating, cross-attention multi-head). 3) SSM vs no-SSM and SSM variants (diagonal, diag+lowrank, shared vs per-stream). 4) Residual styles (initial residual, pre-activation, learned skip weights). 5) Hyperedge weighting schemes (TF-IDF init vs uniform vs learned attention). 6) Sampling/scalability choices (full-batch vs minibatch cluster sampling).
+
+Evaluation metrics:
+Primary: accuracy and macro/micro F1 for node classification. Secondary: calibration (ECE), AUROC when applicable, class-wise recall/precision, and fairness gaps (group accuracy difference if sensitive attributes are present). Embedding diagnostics: Dirichlet energy, average pairwise cosine similarity across layers, and CKA/Centered Kernel Alignment to quantify oversmoothing and representational change.
+
+Robustness and OOD tests:
+1) Topology perturbations: random edge/hyperedge deletion and addition at rates {5,10,20,30,50}%. 2) Adversarial flips: targeted edge flips (5–20%) using degree-based or gradient-guided heuristics. 3) Feature corruption: Gaussian noise (σ in {0.1,0.5,1.0}), and random feature masking at rates {10,30,50}%. 4) Hyperedge noise: shuffle membership or add spurious hyperedges at {5–30}%. 5) Label scarcity/generalization: train with very-low-label regimes and evaluate transductive vs inductive generalization. 6) Domain shift: train on one cluster/community and test on others; temporal holdout for OGB.
+
+Statistical methodology and reporting:
+Report mean ± std over seeds, 95% confidence intervals, and per-dataset paired statistical tests (Wilcoxon signed-rank if normality unverified; paired t-test otherwise) comparing HGMN to top baselines. Report effect sizes (Cohen’s d) and adjust p-values for multiple comparisons (Benjamini-Hochberg). Provide ablation tables, significance annotations, and power justification for sample counts.
+
+Computational and reproducibility checklist:
+Report model parameter counts, peak GPU memory, training time per epoch, optimizer settings, learning rate schedule, and hardware. Open-source code, random seeds, dataset preprocessing scripts, hyperedge generation parameters, and exact evaluation scripts to allow replication.
+
+This protocol prioritizes demonstrating where HGMN improves predictive accuracy, long-range reasoning (SSM benefit), robustness to perturbations, and avoidance of oversmoothing, while quantifying costs and failure modes.
+============================================================
+
+
+
+============================================================
+TIMESTAMP: 2026-05-15 23:11:04
+============================================================
+
+PROMPT:
+------------------------------------------------------------
+
+You are Evaluation & Robustness Lead, an expert agent contributing to the research project on "Hypergraph Neural Network with State-Space Models for Node Classification".
+Research Description provided by human researcher initially: Hypergraph Neural Network with State-Space Models for Node Classification ,Core idea is: Propose HGMN, a model that integrates role-aware representations into GNNs by constructing hypergraphs to capture higher-order relationships and applying state-space modeling. A learnable transformer-like fusion mechanism combines role-based and adjacency-based embeddings; hypergraph convolution layers model complex dependencies, and residual connections mitigate over-smoothing. ,keywords to are: graph neural networks, hypergraph, state-space model, node classification, role-aware representations, hypergraph convolution, residual connections, hypergraph construction, transformer fusion ,other information:Introduce a hypergraph-based GNN that fuses role-based and adjacency-based features via state-space modeling and a learnable fusion mechanism to produce richer node representations for node classification tasks.
+
+**Agent Profile:**
+- Expertise: Experimental design, statistical evaluation, benchmarking for node classification, ablation studies, robustness/OOD testing, fairness and sensitivity analyses.
+- Role: Set benchmark baselines and metric suites, design ablation matrices (e.g., role vs adjacency, SSM vs no-SSM), run experiments with statistical rigor, evaluate robustness (perturbations, missing edges, domain shifts), and synthesize results for publication.
+- Goal: Define and execute a rigorous evaluation protocol: metrics, baselines, ablations, statistical tests, and robustness checks that convincingly demonstrate HGMN's benefits and limitations.
+
+**Previous Feedback Received (priority : high):**
+Overall the ensemble of expert outputs is well-structured, technically sound, and highly actionable. Collectively you cover model design (hyperedge types, diffusion operator), SSM integration (stable parameterizations, conv-kernel implementation), role-extraction pipelines, dataset/synthetic benchmark curation, rigorous evaluation protocols, and reproducible engineering. To improve further: (1) Provide explicit computational/complexity estimates and concrete parameter counts for representative model variants (per-layer FLOPs, memory for SSM kernels per channel, and worst-case incidence matrix sizes). This is essential to justify SSM-per-node choices and hyperedge sizing on large graphs. (2) Add a small theoretical or empirical analysis that explains when SSM over layers is superior to alternatives (e.g., deep residual stacks, dilated convolutions, attention-based depth aggregation), and quantify the tradeoff between SSM state size and number of conv layers. (3) Clarify hyperedge-weight learning: exact parameterization, regularizers, and stability when many overlapping hyperedges exist (ill-conditioning mitigation). (4) Expand on fusion ablations with clear hypotheses (when should gate favor role vs adjacency signals, temperature schedules, and how soft-membership priors affect attention). (5) Include concrete profiling numbers (expected training time / epoch and memory) for baseline and full HGMN on at least one medium-scale dataset (OGBN-ArXiv). (6) Ensure reproducibility notes explicitly flag non-deterministic ops and the fallback behavior if strict determinism is turned on (and provide seed-sensitivity analyses). (7) Strengthen fairness and interpretability tests (beyond prototypes): e.g., per-role demographic splits, counterfactual perturbations, and tools to visualize hyperedge influence. Addressing these points will increase confidence in scalability, empirical claims, and diagnostic clarity.
+
+guidance and questions for you by the Principal Investigator (priority : very high):
+Guidance: Meeting 1 objectives: align on prototype scope, prioritize experiments, assign owners, and set initial timelines. Decisions needed: SSM variant to implement, hyperedge parameterization, fusion baselines, datasets, and profiling metrics. Immediate tasks: (1) finalize two representative HGMN variants (light/heavy) for implementation; (2) define 5 prioritized ablations (SSM vs no-SSM, fusion types, hyperedge weighting, over-smoothing counters, synthetic role recovery); (3) pick datasets (Cora, PubMed, OGBN-ArXiv, 1 synthetic SBM with planted roles) and standardized splits; (4) specify profiling targets (per-layer FLOPs, peak GPU memory, epoch time, kernel lengths) and reproducibility checklist (seeds, nondeterministic ops, Docker image, unit tests); (5) assign 2-week milestones: prototype SSM conv + sparse hypergraph ops, initial ablations, and profiling report. Expect concrete deliverables for next meeting: prototype code, baseline results, complexity table, and a short plan for fairness/interpretability tests.
+
+ 
+Questions: ['What are the per-layer computational and memory costs (FLOPs, peak GPU memory) for representative HGMN variants with SSM kernels versus standard GNN layers on a medium-scale dataset like OGBN-ArXiv?', 'Under which graph conditions (diameter, homophily, role sparsity, average degree) do SSM-based depth aggregations outperform deep residual stacks, dilated convolutions, or attention-based depth fusion?', 'How should hyperedge weights be parameterized and regularized (learned scalars, soft-membership logits, low-rank factorization) to remain stable when many overlapping hyperedges exist?', 'Which fusion ablation suite (gated fusion, multi-head cross-attention, concatenation+MLP, learned temperature) and hypotheses will reveal when role or adjacency signals should dominate?', 'Which datasets and synthetic generators best stress-test long-range role recovery and hyperedge scalability, and what planted-SBM configurations and metrics should we standardize?', 'Which SSM parameterizations (HiPPO, diagonal+low-rank A, learned conv-kernel via Tustin) and kernel lengths should we compare, and how do we quantify stability versus state-size?', 'What exact profiling and reproducibility checks (epoch time, memory, FLOPs, seed sensitivity, nondeterministic ops list, Docker/CI image) are required to report fair comparisons between baseline and HGMN?', 'How can we quantify and visualize hyperedge influence and fairness: hyperedge attribution methods, per-role demographic splits, counterfactual hyperedge removals, and interpretable metrics to audit predictions?']
+
+answer based on real-world knowledge and scientific principles:
+[None, 'SSM-based depth aggregations outperform deep residual stacks, dilated convolutions, or attention-based depth fusion in graphs with high homophily and low role sparsity. They excel in maintaining local structure information.', None, None, 'For stress-testing long-range role recovery and hyperedge scalability, use the PIXIU benchmark and synthetic generators from finance-specific LLMs. Standardize planted-SBM configurations with metrics like modularity and average degree.', 'Compare HiPPO, diagonal+low-rank A, and learned conv-kernel via Tustin SSM parameterizations by their stability and state-size. Use spectral radius and state dimension for quantification.', None, None]
+
+**Current Task or Situation:**
+If any feedback was provided, address it in your response. Otherwise, respond to the current research task and explore the research area by giving ideas which fill the gaps in research according to your expertise.
+
+**Recent Conversation Log (last exchanges):**
+Hypergraph Architect: "Summary of proposed HGMN core architecture and design choices.
+
+Hypergraph construction.
+- Create two complementary hyperedge sets: role-based hyperedges and adjacency/feature hyperedges. Role hyperedges group nodes with similar structural roles obtained from role embeddings (e.g., struc2vec, role2vec, node signature clustering, or learned role encoder). Adjacency hyperedges capture local connectivity and feature similarity via k-nearest-neighbor in attribute space, ego-net expansion, and motif-based hyperedges (triangles, cliques).
+- Make hyperedges weighted. Initialize weights using TF-IDF-like scores for attribute hyperedges and inverse hyperedge size for role hyperedges, and refine weights via a small attention network trained end-to-end.
+
+Hypergraph representation and normalization.
+- Represent hypergraph with sparse incidence matrix H (nodes × hyperedges). Use normalized diffusion operator commonly used in HGNN: Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2}, where Dv and De are node and hyperedge degree diagonal matrices and We are learnable hyperedge weights. This preserves scale and stabilizes propagation.
+
+Hypergraph convolution modules.
+- Implement two parallel hypergraph convolution streams: one on role-hypergraph and one on adjacency-hypergraph. Use the normalized diffusion operator to propagate and then apply a linear transform and nonlinearity.
+- Optionally provide a spectral variant using hypergraph Laplacian eigenbasis for small graphs and a spatial variant using message passing on incidence structure for large graphs.
+
+State-space modeling integration.
+- Treat the layer-depth propagation (or multi-hop information) as a sequence and insert lightweight linear state-space model (SSM) modules (inspired by HiPPO/S4) to capture long-range dependencies across propagation steps per node. The SSM maintains a compact hidden state per node that aggregates information over many hops without stacking large numbers of layers.
+- For efficiency use diagonal-plus-low-rank transitions or convolutional SSM kernels and share SSM parameters across nodes.
+
+Fusion mechanism.
+- Fuse role-based and adjacency-based embeddings with a learnable transformer-like cross-attention: multi-head cross-attention where queries come from one stream and keys/values from the other, followed by gated residual fusion: fused = gate * role + (1-gate) * attn_output, where gate is sigmoid of a small MLP on concatenated streams. This combines expressivity and stability.
+
+Residuals and over-smoothing mitigation.
+- Use pre-activation residual connections and initial residual (add original features at each block). Include layer normalization, pair normalization or decorrelation regularizer, and stochastic edge/hyperedge drop (DropEdge variant) to limit oversmoothing. Allow adjustable skip weights learned per layer to modulate how much new information is mixed.
+
+Scalability and training.
+- Use sparse H, minibatch sub-hypergraph sampling (Cluster-GCN or neighborhood sampling), and efficient SSM parametrizations. Train with cross-entropy and optional Dirichlet energy regularizer to encourage discriminative embeddings.
+
+Recommended ablations and metrics.
+- Ablate hyperedge types (role vs adjacency), fusion methods (concat/gate/attention), SSM vs plain stacking, residual styles, and hyperedge weighting schemes. Evaluate node classification accuracy, macro/micro F1, robustness to sparsity, and over-smoothing via representation similarity and homophily sensitivity.
+
+Next steps.
+- Implement prototype in PyTorch Geometric with sparse incidence ops, run ablations on Cora, Citeseer, PubMed and synthetic role-based benchmarks, and analyze tradeoffs between SSM capacity and hyperedge complexity."
+State‑Space Modeling Specialist: "Summary and concrete SSM design for HGMN integration.
+
+1) High-level role of SSM. Treat multi-hop propagation depth (or successive hypergraph-conv blocks) as a temporal sequence per node and use a compact linear state-space model (SSM) to accumulate long-range information without stacking many layers. The SSM runs per embedding channel (shared parameters across nodes) and outputs a smoothed, long-range-aware version of the node embedding sequence that is then fused with the complementary stream via the transformer-like fusion.
+
+2) SSM formulation (continuous→discrete, implementable and stable). Use a stable continuous-time linear SSM dx/dt = Ax(t)+Bu(t), y(t)=Cx(t)+Du(t) with A parameterized to be negative definite on the real part (e.g., A = -R - S where R is diagonal with positive entries and S is skew-symmetric). Discretize with bilinear (Tustin) transform to obtain discrete matrices (Ad,Bd,Cd,Dd) for sequence steps corresponding to propagation hops. For efficiency and scalability use the convolutional kernel form: y = K * u, where K is the impulse response computed from the discretized SSM. Parameterize A as diagonal-plus-low-rank (A = diag(a) + U V^T) or use the HiPPO/S4 canonical parameterization when long memory is required.
+
+3) Numerical stability and gradient behavior. Constrain diag(a) to be negative via a softplus or exponential negative parameterization (a = -softplus(p)). Keep low-rank components small by weight decay and optionally spectral normalization. Precompute SSM kernels in double precision and cast to float32 for convolution. Use the convolutional implementation (FFT when kernel length L is large) rather than explicit recurrence for both speed and stable backpropagation. Clip gradients (norm 1.0) and use layer normalization before SSM inputs to stabilize scale.
+
+4) Implementation details compatible with hypergraph conv outputs.
+- Apply an SSM per stream (role-stream and adjacency-stream) with shared hyperparameters but separate weights (ablate share vs separate).
+- Treat the sequence length T as the number of hops/layers or precomputed diffusion depth (T in 8–64). Compute the node embeddings at each hop via hypergraph diffusion operator, form sequences of shape [batch_nodes, channels, T], and convolve along T with SSM kernel K of length L=T or >T.
+- Use per-channel SSM (C channels -> C independent kernels) or grouped channels (reduce parameter count) with diagonal-plus-low-rank across groups.
+- For minibatching/sub-hypergraph sampling reset node hidden states each batch; do not carry state across batches unless doing transductive full-graph training with persistent buffers.
+
+5) Hyperparameters and training tips.
+- Hidden state / channel groups: channels per SSM group 1 or small groups; overall SSM state size N per channel 16–64.
+- Kernel length L: set to T (8–32) for moderate tasks or 64–256 for long-range; compute kernels with FFT for L>64.
+- Optimizer: AdamW lr 1e-3 (warmup), weight decay 1e-5, dropout 0.1–0.3 on embeddings, gradient clipping 1.0.
+- Regularizers: small orthogonality/skew penalty on S to avoid drift, Dirichlet energy on final embeddings to encourage class separation.
+- Ablations: SSM vs no-SSM, diagonal vs diag+lowrank A, per-stream SSM vs shared SSM, convolutional kernel vs recurrent implementation.
+
+6) Integration with fusion and residuals. Run SSMs on each stream outputs, feed SSM outputs into the cross-attention fusion, and use gated residual blending (learned scalar per layer) and initial-residual connections to prevent oversmoothing.
+
+I can provide PyTorch-compatible pseudocode for convolutional SSM kernel computation and an efficient FFT-based conv implementation, and concrete initializers for HiPPO-like kernels if you want to proceed to implementation."
+Role Representation & Graph Mining Expert: "Below I specify a concrete, implementable pipeline for extracting, validating, and injecting role-aware representations into HGMN, plus practical design choices and evaluation criteria to preserve role semantics during fusion.
+
+1) Role-feature extraction (multi-view structural signatures).
+- Compute complementary structural descriptors per node: degree, k-hop degree sequence, egonet density, clustering coefficient, motif counts (triangles, squares), PageRank, heat kernel signatures, and per-hop aggregated degree histograms. Optionally add spectral positional encodings (top-k Laplacian eigenvectors) and WL subtree counts for richer structure.
+- Optionally run learned encoders: struc2vec/role2vec random-walk based embeddings and a lightweight MLP/GNN encoder trained to predict local signature histograms (self-supervised reconstruction) to produce continuous role embeddings.
+
+2) Multi-scale role embedding and clustering.
+- Standardize and concatenate structural views, then reduce dimension with PCA or an autoencoder to Drole (32–128).
+- Apply multi-scale clustering: run k-means at several K values (e.g., 8, 16, 32) and a hierarchical/agglomerative pass to capture coarse-to-fine roles. Also compute soft assignments using Gaussian-mixture or softmax over negative distances (temperature τ).
+- Create role prototypes (centroids) and store per-node role membership vector r (soft weights) and a max-role label for analyses.
+
+3) Hyperedge construction from roles.
+- Form role hyperedges by grouping nodes with high soft-membership to the same prototype (threshold θ or top-k per prototype). Use weighted hyperedges with weight w_e = membership_confidence * 1/|e| (inverse size) and optionally apply TF-IDF across attributes to bias informative clusters.
+- Limit hyperedge sizes (max-size S, e.g., 256) or split very large hyperedges into sub-hyperedges by community within the role to avoid dominance.
+
+4) Preserving role semantics during fusion and training.
+- Keep a separate projection head for role embeddings (Wr) and adjacency embeddings (Wa) to avoid mixing raw distributions; enforce approximate orthogonality between heads via small orthogonality loss to preserve complementary information.
+- Use the transformer-like cross-attention with queries from one stream and keys/values from the other; include a gating scalar g = sigmoid(MLP([role,adj])) that controls contribution of role prototype vs fused signal. Initialize gate bias to favor role input (e.g., g ~0.6) so role semantics are not overwritten early.
+- For soft role hyperedges, pass membership weights into attention as priors (bias keys/values) so nodes with stronger role-membership influence fusion more.
+
+5) Role regularization and interpretability.
+- Add a prototype contrastive loss (NT-Xent) or a triplet loss to pull nodes toward their prototype and push different prototypes apart. Add a cluster-entropy penalty to avoid degenerate single-cluster collapse.
+- Maintain a small set of anchor/prototype exemplars per role for interpretability; periodically output top exemplar nodes and summary statistics (degree distribution, motif profile).
+
+6) Validation and ablations.
+- Evaluate role quality with internal metrics (silhouette, NMI against synthetic ground-truth roles) and robustness metrics (role stability under edge/node perturbation). For downstream impact, ablate role hyperedges vs adjacency hyperedges, hard vs soft assignments, projection orthogonality, and gating initializations.
+- Use structural benchmarks (e.g., RoleBench, synthetic structural equivalence graphs) alongside Cora/Citeseer/PubMed to ensure roles generalize and improve node classification, particularly in low-homophily or feature-scarce regimes.
+
+7) Training strategy and hyperparameters.
+- Two-phase training: pretrain role encoder/self-supervised objective for several epochs, then fine-tune end-to-end with fusion; alternative is joint training with smaller learning rate on role encoder. Typical ranges: Drole 64, cluster Ks {8,16,32}, τ 0.1–0.5, θ 0.6, prototype loss weight 0.1–1.0.
+
+This pipeline yields robust, interpretable role hyperedges and embeddings that complement adjacency signals while preserving role semantics through projection decoupling, gating, and prototype-based regularization."
+Data Curation Specialist: "Summary and deliverables I will provide to support rigorous evaluation of HGMN:
+
+1) Recommended real-world dataset suite and provenance.
+- Citation networks: Cora, Citeseer, PubMed (original sources: https://linqs.soe.ucsc.edu, PubMed via SNAP/OGB). Use canonical node labels and bag-of-words features.  
+- Large academic graphs: OGBN-ArXiv and OGBN-Products (OGB benchmark: https://ogb.stanford.edu). Use their temporal/inductive splits where available.  
+- Bipartite/hypergraph-native data: DBLP (author–paper–venue), Yelp (user–business–review), 20 Newsgroups (document–word). Construct natural hyperedges (papers/documents). Provide source URLs and licenses.  
+- Low-homophily and structural-role benchmarks: Actor, Twitch, and synthetic RoleBench-like graphs (see synthetic section). Use datasets known for low feature-label correlation to stress role signals.
+
+2) Hyperedge construction heuristics and metadata.
+- Role hyperedges: derive role embeddings (struc2vec or structural signature PCA) then k-means (Ks = {8,16,32}) to obtain soft membership vectors. Create hyperedge per prototype; include fields: prototype_id, node_list, membership_weights, creation_method, K, clustering_seed. Limit hyperedge size (max_size = 256) and split oversized hyperedges. Initialize weight w_e = (avg_membership_confidence) * (1/|e|).  
+- Adjacency/feature hyperedges: build k-NN attribute hyperedges (k={8,16}), ego-net hyperedges (1–2 hop), motif hyperedges (triangles, cliques up to size 4). Store type, parameter k/motif_type, node_list, TF-IDF-like initial weight (tfidf_attr * 1/|e|).  
+- Normalization metadata: store Dv, De, We initial values and normalization scheme (Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2}).
+
+3) Synthetic benchmark generators (configurable scripts).
+- Planted-role graphs: create graphs with structural-equivalence roles by generating multiple role-classes where nodes share identical local patterns (e.g., regular subgraphs or identical ego-net topology), then connect role clusters with controlled cross-role edges. Parameters: N (1k–50k), C roles, avg_degree, homophily (0–1), noise_rewire. Output ground-truth role labels and hyperedges per role.  
+- Planted-community graphs (SBM / degree-corrected SBM) to test adjacency hyperedges. Vary homophily and feature-label correlation.  
+- Long-range dependency graphs: chains, ladders, and small-world (Watts–Strogatz) families to evaluate SSM capacity (vary diameter and shortcut probability).  
+- For each synthetic graph produce node features: (a) label-correlated Gaussian features, (b) random features, (c) TF-IDF-style sparse bag features. Provide scripts to vary label rate and feature noise.
+
+4) Standardized splits and reproducibility.
+- Provide deterministic stratified train/val/test splits: transductive standard (e.g., 20 labels/class train), low-label regimes (5,10,20 per class), randomized 10-fold cross-validation, inductive splits for OGB temporal datasets, and cluster-based inductive splits for generalization tests. Save splits as index files with seed and generator version.  
+- Recording: dataset README, full provenance (download URLs, original checksum), preprocessing steps (normalization, tokenization, PCA), code versions, random seeds, and license. Provide incidence matrices in sparse format, hyperedge metadata JSON, and scripts to reconstruct hyperedges.
+
+5) Evaluation and ablation setup.
+- Provide baseline split sets and scripts to run ablative variants: no-role hyperedges, only-role, only-adjacency, varying hyperedge weighting, and noisy hyperedge injection. Include evaluation metrics: accuracy, macro/micro F1, homophily sensitivity, and representation similarity/oversmoothing diagnostics.
+
+I will prepare the datasets, hyperedge construction code, split files, and documentation notebooks to ensure reproducible experiments for HGMN."
+Evaluation & Robustness Lead: "Below I specify a concise, rigorous evaluation and robustness protocol to validate HGMN’s claimed benefits and limitations. The plan covers datasets, baselines, ablation matrix, metrics, robustness/OOD tests, statistical methodology, and reporting requirements.
+
+Datasets and splits:
+Evaluate on canonical citation graphs (Cora, Citeseer, PubMed), OGBN-ArXiv (inductive), synthetic role-bench graphs (planted-role), and at least one low-homophily real graph (e.g., Twitch/Actor). Use standardized transductive splits (20 labels/class), low-label regimes (5,10,20 per class), and inductive/temporal splits for OGB. Run each experiment with 30 independent seeds where feasible and provide split files for reproducibility.
+
+Baselines:
+Compare to strong baselines: GCN, GAT, GraphSAGE, APPNP, HGNN/HyperGCN, HNHN (hypergraph neural models), a role-only pipeline (struc2vec/role2vec + MLP), and a transformer/attention-based GNN. Include ablation models from HGMN family: HGMN without SSM, HGMN with RNN/LSTM instead of SSM, HGMN without role hyperedges, and HGMN without adjacency hyperedges.
+
+Ablation matrix (priority order):
+1) Role vs adjacency hyperedges (only-role, only-adj, both). 2) Fusion variants (concat, gating, cross-attention multi-head). 3) SSM vs no-SSM and SSM variants (diagonal, diag+lowrank, shared vs per-stream). 4) Residual styles (initial residual, pre-activation, learned skip weights). 5) Hyperedge weighting schemes (TF-IDF init vs uniform vs learned attention). 6) Sampling/scalability choices (full-batch vs minibatch cluster sampling).
+
+Evaluation metrics:
+Primary: accuracy and macro/micro F1 for node classification. Secondary: calibration (ECE), AUROC when applicable, class-wise recall/precision, and fairness gaps (group accuracy difference if sensitive attributes are present). Embedding diagnostics: Dirichlet energy, average pairwise cosine similarity across layers, and CKA/Centered Kernel Alignment to quantify oversmoothing and representational change.
+
+Robustness and OOD tests:
+1) Topology perturbations: random edge/hyperedge deletion and addition at rates {5,10,20,30,50}%. 2) Adversarial flips: targeted edge flips (5–20%) using degree-based or gradient-guided heuristics. 3) Feature corruption: Gaussian noise (σ in {0.1,0.5,1.0}), and random feature masking at rates {10,30,50}%. 4) Hyperedge noise: shuffle membership or add spurious hyperedges at {5–30}%. 5) Label scarcity/generalization: train with very-low-label regimes and evaluate transductive vs inductive generalization. 6) Domain shift: train on one cluster/community and test on others; temporal holdout for OGB.
+
+Statistical methodology and reporting:
+Report mean ± std over seeds, 95% confidence intervals, and per-dataset paired statistical tests (Wilcoxon signed-rank if normality unverified; paired t-test otherwise) comparing HGMN to top baselines. Report effect sizes (Cohen’s d) and adjust p-values for multiple comparisons (Benjamini-Hochberg). Provide ablation tables, significance annotations, and power justification for sample counts.
+
+Computational and reproducibility checklist:
+Report model parameter counts, peak GPU memory, training time per epoch, optimizer settings, learning rate schedule, and hardware. Open-source code, random seeds, dataset preprocessing scripts, hyperedge generation parameters, and exact evaluation scripts to allow replication.
+
+This protocol prioritizes demonstrating where HGMN improves predictive accuracy, long-range reasoning (SSM benefit), robustness to perturbations, and avoidance of oversmoothing, while quantifying costs and failure modes."
+Systems & Reproducibility Engineer: "Summary and plan: I will deliver a production-grade, reproducible codebase that implements HGMN with efficient hypergraph convolution kernels, scalable SSM integration, end-to-end training pipelines, experiment tracking, and deployment artifacts. The implementation will prioritize memory/GPU efficiency, deterministic runs, and easy ablation/benchmarking.
+
+Core implementation priorities and optimizations:
+- Modular code layout: hgm n/core (models: hypergraph_conv, ssm_kernel, fusion), data (hyperedge builders, samplers), training (train_loop, metrics), utils (seed, logging), and tests. Configuration via Hydra for reproducible hyperparameter sweeps.
+- Hypergraph ops: represent incidence H as sparse CSR/COO; implement diffusion operator Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2} using sparse-dense and sparse-sparse matmuls to avoid materializing large dense matrices. Provide two backends: PyG/PyTorch sparse for most uses and a custom fused CUDA kernel (sparse incidence × dense features) for hotspot layers when profiling shows CPU-bound overhead.
+- SSM integration: compute convolutional SSM kernels per-channel or grouped channels on CPU in float64 then cast to float32, use torch.fft-based convolution for long kernels, and implement grouped FFT conv to reduce memory. Provide both kernel-conv and recurrence implementations for ablation.
+- Memory & performance: mixed-precision training (AMP), activation checkpointing for deep stacks, optional fp16 kernel computations for SSM where stable, gradient clipping, and per-layer dropout. Support torch.distributed DDP and fairscale FSDP hooks for large models.
+- Minibatching/scaling: implement Cluster-GCN and neighborhood-based sub-hypergraph sampling; support block-sparse minibatches with preserved incidence indices and reset SSM states per batch. Provide fast hyperedge subsetting to avoid copying large incidence matrices.
+
+Reproducibility, CI/CD, and experiment tracking:
+- Containerization: Dockerfile with exact package versions; provide Conda env YAML and libs pinned. Include lightweight test dataset CI job to validate model/train/run.
+- Determinism: global seed propagation, torch.use_deterministic_algorithms(True) flag (with fallback), cudnn deterministic settings, and documented non-deterministic ops.
+- Experiment tracking: integrate WandB and MLflow hooks for hyperparams, artifacts, model checkpoints, and per-epoch metrics. Auto-save best checkpoints and dataset/hyperedge metadata JSON with checksums.
+- Tests & validation: unit tests for hypergraph normalization, SSM kernel consistency (conv vs recurrence), and end-to-end smoke training on small graphs. Add integration tests for DDP training.
+- Artifacts & release: pip-installable package, pretrained checkpoints for standard datasets, reproducible scripts to regenerate hyperedges and splits, and a README with exact commands to reproduce main tables.
+
+Evaluation and deliverables:
+- Provide benchmark scripts and configs for Cora, Citeseer, PubMed, OGBN-ArXiv, and synthetic role graphs with standardized splits and seed lists.
+- Deliverables: optimized codebase on GitHub, Docker image, CI pipeline, experiment tracking templates, unit/integration tests, and a reproducibility checklist with expected runtimes, GPU memory, and random seeds.
+
+Next step: I will produce the initial repo skeleton, a tested hypergraph diffusion operator implementation, and an FFT-backed SSM conv module for profiling; please confirm preferred experiment tracking (WandB or MLflow) and target GPU class for kernel tuning."
+Hypergraph Architect: "Summary and concrete plan (roles: Hypergraph Architect).
+
+Two representative HGMN variants
+- HGMN-light: 3 hypergraph-conv blocks (adjacency + role streams shared linear projections), per-stream convolutional SSM with small kernel (T=16, per-channel state N=16, grouped channels), gated fusion (single-head), single initial-residual per block. Budget: ~3–4×GCN FLOPs, peak GPU ~200–400MB on OGBN-ArXiv with mixed precision.
+- HGMN-heavy: 6 blocks, per-stream per-channel SSM (N=32, T=32), multi-head cross-attention fusion, learned hyperedge weights (diag+low-rank) and stronger regularizers. Budget: ~6–10×GCN FLOPs, peak GPU >1GB on OGBN-ArXiv.
+
+Per-layer computational and memory cost (example, OGBN-ArXiv: N≈170k, |E|≈1.16M, d=128)
+- GCN layer (sparse message passing): ≈2·|E|·d ≈ 300M FLOPs; activations ≈ N·d·4bytes ≈ 87MB.
+- Hypergraph-conv (two hyperedge-sets, incidence nnz ≈1.53M): ≈2·1.53M·d ≈ 392M FLOPs per hypergraph stream; two streams ≈780M FLOPs.
+- SSM conv (convolutional kernel per-channel, T=16): approx N·d·T ≈ 350M scalar ops (FFT can reduce constants for large T). Memory for SSM kernels is small; storing full per-hop sequences naively multiplies activation memory by T—use streaming/FFT conv to avoid that.
+- Practical implication: a single HGMN block (two hypergraph streams + SSM + fusion) ≈0.8–1.2 GFLOPs; heavy stacks multiply linearly. Use mixed precision, grouped SSMs, and minibatch sampling to keep memory <1GB for light variant.
+
+When SSM depth-aggregation helps
+- SSMs win when long-range dependencies matter (large diameter or low average degree), when many hops are needed but stacking layers causes oversmoothing, and when temporal-like multi-hop aggregation benefits from stable linear memory (planted-role recovery, chain/small-world graphs). SSMs are less beneficial when short-range structure suffices (very high avg degree, tiny diameters) or when attention across depth already captures necessary signals at low cost.
+
+Hyperedge-weight parameterization and regularization
+- Parameterize per-hyperedge logit α_e (learned scalar) or soft-membership logits s_{v,e} (node×hyperedge) normalized with row/column softmax. For scalability use low-rank factorization: S ≈ U·V^T with U∈R^{N×r}, V∈R^{E×r}. Regularizers: L2 on U,V, spectral-norm clamp on learned diffusion operator, entropy penalty on soft-membership to avoid collapse, and small ridge ε on De to stabilize inversion. Enforce degree-normalization Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2}.
+
+Fusion ablation suite and hypotheses
+- Methods: gated scalar fusion, concatenation+MLP, multi-head cross-attention, learned temperature on soft-membership priors. Hypotheses: gating favors role signals when prototype confidence high; cross-attention helps when streams carry complementary modalities; higher temperature biases fusion to dominant signal—use schedule or learned temp. Include ablations for soft vs hard membership and role-prior bias added to attention logits.
+
+Datasets and synthetic generators
+- Real: Cora, PubMed, OGBN-ArXiv, low-homophily graph (Actor/Twitch), and OGBN-Products for scale. Synthetic: planted-role SBM generator (configurable N, C roles, avg_degree, cross-role edge prob, noise_rewire) producing ground-truth roles and node features; long-range families (chains, ladders, Watts–Strogatz) to stress SSM.
+
+Profiling and reproducibility checklist (for reports)
+- Targets: per-layer FLOPs, peak GPU memory, epoch time, SSM kernel lengths, parameter counts, incidence nnz. Reproducibility: seeds list, nondeterministic ops flagged, Docker image + conda env, torch.use_deterministic_algorithms fallback note, unit tests for diffusion/SSM conv parity, saved hyperedge JSONs, and 30-seed sensitivity runs for core experiments.
+
+Two-week milestones and owners
+- Week 1–2: implement convolutional SSM module (FFT & recurrence) + sparse hypergraph diffusion ops (owner: Systems & SSM lead). Deliverable: prototype kernels + unit tests.
+- Week 1–2: implement HGMN-light, run initial ablations (SSM vs no-SSM, fusion types, hyperedge weighting) on Cora/PubMed and synthetic SBM (owner: Hypergraph Architect + Role Expert). Deliverable: prototype code + preliminary profiling table.
+
+I will produce concrete hyperedge-weight parameter code snippets, loss terms for stability, and a prioritized ablation matrix for the next meeting."
+State‑Space Modeling Specialist: "Summary and concrete SSM plan for Meeting 1 (decisions, costs, comparisons, and experiments).
+
+1) Chosen SSM variants for prototypes.
+- HGMN-light: convolutional SSM via bilinear (Tustin) discretization with diagonal-plus-low-rank A (A = diag(a) + U V^T), grouped-channel kernels, state-size per group N=16, kernel length L=T=16. Shared SSM parameters across nodes, separate per-stream weights.
+- HGMN-heavy: S4/HiPPO canonical parameterization for long memory, per-channel kernels, state-size N=32–64, kernel length L=32–64, FFT-based conv for efficiency.
+
+2) When SSMs outperform alternatives.
+- SSM depth-aggregation is advantageous when graphs require many hops to connect role-relevant nodes (diameter > 10 or average degree low < 4), when role signals are sparse but repeated across distant hops, or when deep stacks cause oversmoothing. SSMs are less beneficial for tiny-diameter/high-degree graphs or when a small number of attentive hops suffice.
+
+3) Per-layer computational & memory estimates (OGBN-ArXiv example: N≈170k, incidence nnz≈1.53M, d=128, T=16).
+- Hypergraph conv per-stream FLOPs ≈ 2·nnz·d ≈ 392M; two streams ≈ 784M FLOPs per block.
+- SSM conv (naive) ≈ N·d·T ≈ 170k·128·16 ≈ 350M scalar ops; using FFT/grouped conv reduces constants significantly for L>64.
+- Activations: single-layer embedding ~N·d·4B ≈ 87MB; naive per-hop sequence would multiply by T (~1.4GB), so implement streaming/FFT conv to avoid T× memory overhead. Practical single-block memory (mixed precision, grouped SSM) for HGMN-light typically <1GB; heavy variant >1GB and scales linearly with blocks.
+
+4) SSM hyperparameters, stability and quantification.
+- Parameterize diag(a) negative via a = -softplus(p). Constrain low-rank terms with weight decay and spectral-norm clipping. Measure stability by spectral radius of Ad (<1), impulse-response L2 norm, and kernel condition number. Sweep state-size N ∈ {8,16,32,64} and record classification gain vs parameter and runtime to quantify tradeoffs.
+
+5) Hyperedge-weight parameterization & regularizers.
+- Two-tier approach: learn per-hyperedge scalar logit α_e (We = softplus(α_e)) plus optional soft-membership S ≈ U V^T (low-rank) for node×hyperedge affinities. Regularizers: L2 on U,V, entropy penalty on per-node membership to avoid collapse, small ridge ε on De when inverting, and spectral-norm clamp on the learned diffusion operator.
+
+6) Fusion ablation suite and hypotheses.
+- Ablations: gated scalar fusion (sigmoid MLP), concat+MLP, multi-head cross-attention, learned temperature τ on soft-membership priors; gate-init bias favoring role stream (g≈0.6). Hypotheses: gating favors role when prototype confidence high; cross-attention helps when streams are complementary; higher τ amplifies dominant stream—schedule or learn τ.
+
+7) Profiling and reproducibility checklist (essentials).
+- Targets: per-layer FLOPs, param counts, peak GPU memory, epoch time, kernel lengths. Record nondeterministic ops (torch.fft, cudnn conv heuristics) and provide Docker image, pinned conda env, seed lists, torch.use_deterministic_algorithms fallback note, unit tests (diff conv vs recurrence), and 10–30 seed sensitivity runs.
+
+8) Interpretability & fairness diagnostics.
+- Quantify hyperedge influence by integrated-gradients on We/soft-membership, counterfactual removal (drop top-k hyperedges) and per-role group accuracy gaps; visualize top contributing hyperedges per prediction and prototype exemplars.
+
+I will deliver: (a) convolutional SSM kernel module (Tustin + FFT), (b) stability testbed for spectral radius/impulse norms, and (c) a short profiling script for OGBN-ArXiv to finalize light/heavy resource budgets within the two-week milestone."
+Role Representation & Graph Mining Expert: "Summary and immediate decisions: I finalize two representative HGMN variants and the experimental plan required for Meeting 1. HGMN-light: 3 hypergraph-conv blocks, two parallel streams (role + adjacency) with grouped convolutional SSM (per-group state N=16, kernel length T=16), gated fusion (single scalar gate initialized to favor role ~0.6), and initial-residual connections. HGMN-heavy: 6 blocks, per-channel S4/HiPPO-style SSM (N=32–64, T=32–64), multi-head cross-attention fusion, learned hyperedge logits plus low-rank soft-membership, and stronger regularizers.
+
+Role extraction and injection pipeline (concrete): compute multi-view structural signatures (degree sequence, k-hop degree histogram, clustering, motif counts, PageRank, WL counts), standardize and reduce to Drole=64 with PCA/autoencoder, produce soft-membership by GMM/soft-kmeans across Ks {8,16,32}, store per-node membership vector r. Create role hyperedges per prototype using top-k or threshold θ=0.6, cap hyperedge size S=256, weight initial w_e = membership_confidence / |e|. Project role and adjacency embeddings with separate linear heads and keep small orthogonality penalty on heads to preserve complementary information.
+
+Hyperedge weight parameterization and stability: support three modes—(1) per-hyperedge scalar logit α_e with We = softplus(α_e); (2) node×hyperedge soft-membership logits S parameterized as low-rank factorization S = softmax_row(UV^T) with rank r∈{8,16}; (3) hybrid scalar+soft-membership. Regularizers: L2 on U,V, entropy penalty on per-node membership to avoid collapse, ridge ε on De before inversion, and spectral-norm clipping on the learned diffusion operator to prevent ill-conditioning when overlaps are dense.
+
+Fusion ablations and hypotheses: compare gated fusion (sigmoid MLP on [role,adj]), concat+MLP, multi-head cross-attention (queries=role, keys/values=adj and vice versa), and learned temperature τ on soft-membership priors. Hypotheses: gating favors role when prototype confidence is high and features are weak; cross-attention benefits complementary signals and heterophilous settings; higher τ amplifies dominant stream—learn τ or anneal from role-biased → neutral during training.
+
+SSM vs alternatives and when SSM helps: SSM depth-aggregation outperforms deep residual stacks, dilated convs, or depth-attention when graphs require many hops to connect role-relevant nodes (diameter > 10, avg degree < 4), in low feature-label correlation or sparse role signals, and when deep stacks induce oversmoothing. SSMs are less valuable on tiny-diameter, very-high-degree graphs where short-range aggregation suffices.
+
+Per-layer compute/memory estimates (OGBN-ArXiv, N≈170k, incidence nnz≈1.53M, d=128, T=16): GCN single layer ≈2·|E|·d ≈ 300M FLOPs; hypergraph-conv per-stream ≈2·1.53M·d ≈ 392M FLOPs, two streams ≈784M FLOPs per block; naive SSM conv ≈N·d·T ≈ 350M scalar ops. A single HGMN block therefore ≈0.8–1.2 GFLOPs. Embedding memory ≈N·d·4B ≈ 87MB; naïve per-hop sequence would multiply activations by T (~1.4GB), so use streaming or FFT conv to avoid T× memory.
+
+Datasets and synthetic generator: Cora, PubMed, OGBN-ArXiv, plus a planted-role SBM (configurable N, C roles, avg_degree, cross-role prob, noise_rewire) and long-range families (chains, Watts–Strogatz) for SSM stress tests. Standardized splits: 20 labels/class, low-label regimes (5,10,20), and saved split files.
+
+Profiling & reproducibility checklist: report per-layer FLOPs, param counts, peak GPU memory, epoch time, SSM kernel lengths, incidence nnz, seeds (≥10/30 runs), nondeterministic ops list, Docker image + pinned env, unit tests (diff conv vs recurrence), and torch.use_deterministic_algorithms fallback behavior.
+
+Two-week milestones and owners: Week 1–2 implement and test convolutional SSM (FFT + recurrence) and sparse hypergraph diffusion ops (Systems/SSM lead). Parallel: implement HGMN-light, run initial ablations (SSM vs no-SSM, fusion types, hyperedge weighting) on Cora/PubMed and planted-SBM, and produce profiling table (Role & Hypergraph leads). Deliverables: prototype code, baseline results, complexity table, and profiling report."
+Data Curation Specialist: "Thank you — below is a concise, actionable data-curation plan aligned to Meeting‑1 decisions, prioritized ablations, profiling targets, reproducibility checks, and two‑week milestones to support HGMN development and evaluation.
+
+Datasets and provenance
+I will prepare: Cora, PubMed, OGBN‑ArXiv (canonical OGB splits), and one synthetic planted‑role SBM generator. For each real dataset I will include source URL, license, original checksum, raw feature/label files, and preprocessing notes (feature normalization, PCA options). For OGBN‑ArXiv I will keep the official temporal/inductive split.
+
+Hyperedge construction heuristics and metadata
+I will output two hyperedge families per dataset: role hyperedges and adjacency/feature hyperedges. Role hyperedges are created from structural signatures (multi‑view PCA/struc2vec) clustered at Ks={8,16,32} producing soft memberships; adjacency hyperedges come from k‑NN (k={8,16}), ego‑net (1–2 hops), and motif cliques (triangles). Each hyperedge artifact will include JSON metadata fields: id, type, node_list, initial_weight, creation_method, params (k/K/θ), membership_vector (if soft), max_size, and seed. I will cap hyperedge size (default 256) and split oversized hyperedges deterministically.
+
+Synthetic benchmark generator
+I will deliver a configurable planted‑role SBM script with parameters: N (1k–50k), C roles, avg_degree, within_role_prob, cross_role_prob, noise_rewire, feature_noise, and label_correlation. The generator outputs ground‑truth role labels, node features (label-correlated or random), hyperedges per role, and saved split files.
+
+Standardized splits and evaluation splits
+I will produce deterministic stratified transductive splits (20 labels/class), low‑label regimes (5,10,20 per class), 10 randomized folds, and an inductive split for OGBN datasets. All splits will be saved as index files with seed and generator version.
+
+Profiling targets and complexity estimates (to record)
+For each experiment I will record: number of nodes N, hyperedges E, incidence nnz, per-layer FLOPs estimate (e.g., hypergraph conv ≈2·nnz·d per stream), parameter counts, SSM kernel lengths, peak GPU memory, and epoch time. For OGBN‑ArXiv I will estimate worst‑case incidence nnz ≲3M (k‑NN + role hyperedges) and report measured FLOPs/memory during profiling.
+
+Hyperedge-weight parameterization & stability notes
+I will provide three hyperedge weight variants in artifacts: scalar logits (α_e → softplus), soft‑membership via low‑rank factorization S=softmax_row(UV^T), and hybrid scalar+soft membership. For each variant I will include suggested regularizers (L2 on U,V, entropy penalty on memberships, small ridge ε for De inversion) and scripts to compute degree matrices and normalized diffusion operator.
+
+Reproducibility checklist and artifacts
+Deliverables will include: incidence matrices in sparse CSR/COO, hyperedge JSONs, split index files, synthetic generator code, README with exact preprocessing commands, Dockerfile and conda environment YAML (pinned versions), unit tests (diffusion operator parity, SSM conv vs recurrence), list of nondeterministic ops, recommended deterministic fallback settings, and a seed sensitivity script (run N=10–30 seeds). I will also store checksums for all artifacts.
+
+Fairness and interpretability tests
+I will provide split variants for per‑role demographic-like groups, scripts for counterfactual hyperedge removals, and routines to compute hyperedge attribution (ablation influence on predictions) to support interpretability and fairness analyses.
+
+Two‑week milestones (owners)
+Week 1–2 deliverables (owner: Data Curation Specialist): prepared datasets with hyperedge artifacts and metadata, synthetic generator with ground‑truth roles, standardized splits, initial profiling scripts and complexity table for Cora/PubMed/OGBN‑ArXiv, and reproducibility artifact bundle (Docker + tests). I will coordinate with Systems for integrated profiling runs and with Model leads for required data formats."
+
+**Instructions:**
+Based on your expertise, assigned role, and the feedback you received, provide a thoughtful and technically sound response to the current task or situation.
+Your response should reflect your specialization, align with your goal, and demonstrate collaboration within the research context.
+
+Output ONLY in STRING format (try to form understandable and research oriented complete sentences, do not just generate characters or words, try to be on the context and use have clarity and generate full well-structured sentences).
+DO NOT HAVE ANY EMPTY CHARACTERS OR PLACEHOLDERS IN YOUR RESPONSE. RESPONSE SHOULD BE IN COMPLETE WELL-STRUCTURED SENTENCES. (priority : very high), KEEP IN MIND THAT YOUR RESPONSE SHOULD NOT BE TOO LONG KEEPING ITS RESPONSE UNDER 450-500 WORDS.
+Your Response:
+
+------------------------------------------------------------
+
+RESPONSE:
+------------------------------------------------------------
+I endorse and operationalize a rigorous evaluation, ablation and robustness plan that will demonstrate HGMN’s benefits and limitations, quantify costs, and provide reproducible artifacts for publication. Key points and concrete actions follow.
+
+1) Computational cost estimates (OGBN‑ArXiv example: N≈170k, incidence nnz≈1.53M, d=128, T=16)
+- Standard GCN layer (sparse edge list): ≈2·|E|·d ≈ 300M FLOPs; embedding activations ≈ N·d·4B ≈ 87MB.  
+- Hypergraph convolution (per-stream): ≈2·nnz·d ≈ 392M FLOPs; two streams ≈784M FLOPs per block.  
+- Naïve convolutional SSM across T hops: ≈N·d·T ≈ 350M scalar ops; using grouped kernels + FFT reduces constants and avoids storing T× activations.  
+- Practical HGMN block cost ≈0.8–1.2 GFLOPs; HGMN‑light (3 blocks) ≈2.4–3.6 GFLOPs, HGMN‑heavy (6 blocks) ≈4.8–7.2 GFLOPs. Mixed precision, grouped SSMs and minibatch sampling are required to keep peak GPU memory for HGMN‑light <1GB on OGBN‑ArXiv.
+
+2) When SSM depth‑aggregation is expected to outperform alternatives
+- SSMs are advantageous when long-range aggregation is required (graph diameter >10, average degree <4), role signals are sparse/long-range, or deep stacks induce oversmoothing. They are less beneficial for tiny‑diameter or very high‑degree graphs where short hops suffice or attention-based depth fusion already captures necessary signals.
+
+3) Hyperedge weight parameterization and stability
+- Support three modes: (A) per‑hyperedge scalar logits α_e with We = softplus(α_e); (B) soft‑membership S (node×hyperedge) parameterized as low‑rank factorization S = softmax_row(UV^T) with small rank r (8–16); (C) hybrid scalar+soft membership.  
+- Regularizers: L2 on U,V, entropy penalty on per‑node memberships to avoid collapse, ridge ε on De before inversion, and spectral‑norm clamps on learned diffusion operators. Always use Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2} normalization and monitor condition numbers.
+
+4) Fusion ablation suite and explicit hypotheses
+- Methods: gated scalar fusion (sigmoid MLP), concat+MLP, multi‑head cross‑attention (role→adj and adj→role), learned temperature τ on membership priors.  
+- Hypotheses: gating favors role when prototype confidence is high or node features are weak; cross‑attention benefits complementary modalities and heterophilous settings; higher τ amplifies dominant stream — test learned vs annealed τ schedules.
+
+5) Datasets and synthetic generators
+- Real: Cora, PubMed, OGBN‑ArXiv (official split), and one low‑homophily graph (Actor or Twitch).  
+- Synthetic: planted‑role SBM configurable by N, C roles, avg_degree, within_role_prob, cross_role_prob, noise_rewire; long‑range families (chains, ladders, Watts–Strogatz) to stress SSM. Provide ground‑truth role labels, hyperedges, and saved splits for reproducibility.
+
+6) SSM parameterizations to compare and stability metrics
+- Compare HiPPO/S4 canonical, diagonal+low‑rank A (A = diag(a)+UV^T) with Tustin discretization, and learned conv‑kernel implementations (FFT). Sweep state size N ∈ {8,16,32,64} and kernel lengths T ∈ {8,16,32,64}. Quantify stability by spectral radius of Ad, impulse‑response L2 norm, kernel condition number, and downstream accuracy per state size.
+
+7) Profiling and reproducibility checklist (report for each experiment)
+- Record: per‑layer FLOPs, parameter counts, incidence nnz, peak GPU memory, epoch time, SSM kernel lengths, optimizer/settings, hardware, and 30 fixed seeds. Provide Docker image + pinned Conda YAML, unit tests (diffusion parity, SSM conv vs recurrence), list of nondeterministic ops, and documented fallback when torch.use_deterministic_algorithms(True) is enabled.
+
+8) Hyperedge influence and fairness diagnostics
+- Attribution: integrated gradients or ablation influence on We/soft‑membership; counterfactual removal of top‑k hyperedges and report per‑node prediction changes. Fairness: per‑role group accuracy gaps, counterfactuals stratified by role prototypes, and visualization of top contributing hyperedges and prototypes as interpretable exemplars.
+
+9) Two‑week milestones and deliverables (owners)
+- Week 1–2 (Systems & SSM lead): deliver convolutional SSM module (FFT + recurrence), sparse hypergraph diffusion ops, unit tests, and a profiling script.  
+- Week 1–2 (Hypergraph Architect & Role Expert + Data): implement HGMN‑light, run initial ablations (SSM vs no‑SSM, fusion variants, hyperedge weighting) on Cora/PubMed/planted‑SBM, and submit prototype code, baseline results, complexity table and profiling report.
+
+I will run the statistical protocol (30 seeds, paired tests, Cohen’s d, FDR correction) on the delivered results and produce the final evaluation tables and robustness plots for the next meeting.
+============================================================
+
+
+
+============================================================
+TIMESTAMP: 2026-05-15 23:14:37
+============================================================
+
+PROMPT:
+------------------------------------------------------------
+
+You are Evaluation & Robustness Lead, an expert agent contributing to the research project on "Hypergraph Neural Network with State-Space Models for Node Classification".
+Research Description provided by human researcher initially: Hypergraph Neural Network with State-Space Models for Node Classification ,Core idea is: Propose HGMN, a model that integrates role-aware representations into GNNs by constructing hypergraphs to capture higher-order relationships and applying state-space modeling. A learnable transformer-like fusion mechanism combines role-based and adjacency-based embeddings; hypergraph convolution layers model complex dependencies, and residual connections mitigate over-smoothing. ,keywords to are: graph neural networks, hypergraph, state-space model, node classification, role-aware representations, hypergraph convolution, residual connections, hypergraph construction, transformer fusion ,other information:Introduce a hypergraph-based GNN that fuses role-based and adjacency-based features via state-space modeling and a learnable fusion mechanism to produce richer node representations for node classification tasks.
+
+**Agent Profile:**
+- Expertise: Experimental design, statistical evaluation, benchmarking for node classification, ablation studies, robustness/OOD testing, fairness and sensitivity analyses.
+- Role: Set benchmark baselines and metric suites, design ablation matrices (e.g., role vs adjacency, SSM vs no-SSM), run experiments with statistical rigor, evaluate robustness (perturbations, missing edges, domain shifts), and synthesize results for publication.
+- Goal: Define and execute a rigorous evaluation protocol: metrics, baselines, ablations, statistical tests, and robustness checks that convincingly demonstrate HGMN's benefits and limitations.
+
+**Previous Feedback Received (priority : high):**
+Overall the team produced a well-structured, realistic plan: clear HGMN variants, concrete SSM parameterizations, hyperedge parameterizations and regularizers, an extensive ablation suite, dataset/synthetic generators, and a thorough reproducibility/profiling checklist. Improvements required before Meeting‑1 deliverables: (1) Formalize the precise hypergraph convolution operator(s) used (mathematical formulas, numerical stability for De inversion) and state how multiple hyperedge families are combined (sum, concatenation, separate channels) so implementations are unambiguous. (2) Provide explicit baseline definitions and metrics: which baselines (GCN, GAT, SIGN, HyperGCN, HGNN), exact splits, metrics beyond accuracy (F1 / macro-F1, calibration, per-role gaps) and the statistical testing protocol (paired tests, effect-size thresholds, multiple comparison correction) codified into experiment scripts. (3) Clarify inductive/generalization regime and how role hyperedges transfer across train/val/test or unseen nodes; provide a protocol for constructing hyperedges under inductive splits. (4) Tighten memory/runtime estimates with measured profiling on target hardware (report measured peak memory and FLOPs, not just estimates) and provide practical minibatching/neighbor-sampling strategies for very large graphs. (5) Specify optimization/training stability measures: initializations (SSM params, gate bias), learning-rate schedules, gradient clipping, and monitoring (spectral radius, kernel norms) with automated early warnings. (6) Make hyperedge construction design decisions explicit and justify them: choice of structural signatures, k/K values, hyperedge size cap and splitting policy, and sensitivity analyses on these. (7) Add a short theoretical motivation/ablation that isolates the benefit of role-aware hyperedges vs. simply adding more features (control for capacity). (8) Expand interpretability/fairness evaluation plans into concrete runnable scripts and thresholds for actionable findings. Addressing these points will make experiments reproducible, results interpretable, and claims well supported.
+
+guidance and questions for you by the Principal Investigator (priority : very high):
+Guidance: Meeting‑2 objectives (clear, actionable): 1) Finalize math: produce exact hypergraph convolution formulas (aggregation, update, readout), De^{-1} stability steps, and multi‑hyperedge fusion rules for both HGMN‑light/heavy. 2) Assign owners & deadlines for: baselines/specs (GCN,GAT,SIGN,HyperGCN,HGNN), metric suite (accuracy, macro‑F1, calibration, per‑role gaps), and statistical testing protocol. 3) Define inductive protocols: node/hyperedge/temporal holdouts, hyperedge construction rules to avoid leakage, and transfer evaluation scripts. 4) Lock SSM training/stability checklist: initializations, spectral/gate constraints, LR schedules, clipping, monitoring hooks (spectral radius, kernel norms). 5) Produce measured profiling on target hardware (peak memory, runtime, FLOPs) using real runs; propose minibatch/sampling strategy for >1M nodes. 6) Finalize hyperedge design decisions (signatures, k/K, size cap/splitting, low‑rank vs scalar logits) and schedule sensitivity sweeps. 7) Specify ablation plan isolating role info vs extra capacity, and prepare runnable interpretability/fairness scripts (role attribution, counterfactual removal, per‑group thresholds). 8) Deliverables for next meeting: (A) math appendix draft, (B) baseline+metric scripts, (C) inductive protocol code, (D) profiling report, (E) ablation plan and interpretability scripts. Keep items reproducible (seeded runs, Docker, unit tests).
+
+ 
+Questions: ['What is the exact mathematical definition of the hypergraph convolution operator used in HGMN, including aggregation, update, readout equations and a numerically stable method for De^{-1}?', 'How should multiple hyperedge families be combined in HGMN (sum, concatenation, separate channels), and what are the trade‑offs for accuracy, stability, and parameter count in light vs heavy variants?', 'Which inductive evaluation protocols best measure role transfer: node holdout, hyperedge holdout, temporal splits, or unseen‑role splits, and how to construct hyperedges without label or structure leakage?', 'How should SSMs be parameterized and initialized for stable training: recommended spectral radius, gate biases, kernel norms, LR schedules, gradient clipping and monitoring signals to auto‑alert instability?', 'Which exact baselines, splits and metrics must be scripted for reproducible comparison (GCN, GAT, SIGN, HyperGCN, HGNN; accuracy, macro‑F1, calibration, per‑role gaps) and what statistical tests/multiple‑comparison corrections to use?', 'What minibatching and neighbor/hyperedge sampling strategies plus sparse hypergraph ops enable scaling HGMN to million‑node graphs while meeting measured memory and runtime targets on our hardware?', 'How to design ablations that isolate the contribution of role‑aware hyperedges versus simply increasing model capacity: controlled capacity baselines, random role controls, and minimum effect‑size thresholds?', 'What concrete interpretability and fairness analyses should be runnable out‑of‑box (role‑edge attribution, saliency, counterfactual hyperedge removal, per‑group error dashboards) and what thresholds trigger actionable findings?']
+
+answer based on real-world knowledge and scientific principles:
+['The hypergraph convolution operator in HGMN uses a numerically stable method for inverting the degree matrix, typically via iterative solvers, and includes aggregation, update, and readout equations for node embeddings.', None, None, 'For stable training, use a spectral radius around 0.9, gate biases initialized to 0, kernel norms kept low, adaptive learning rate schedules, gradient clipping at 1.0, and monitor loss and gradient norms.', None, None, None, None]
+
+**Current Task or Situation:**
+If any feedback was provided, address it in your response. Otherwise, respond to the current research task and explore the research area by giving ideas which fill the gaps in research according to your expertise.
+
+**Recent Conversation Log (last exchanges):**
+Evaluation & Robustness Lead: "Below I specify a concise, rigorous evaluation and robustness protocol to validate HGMN’s claimed benefits and limitations. The plan covers datasets, baselines, ablation matrix, metrics, robustness/OOD tests, statistical methodology, and reporting requirements.
+
+Datasets and splits:
+Evaluate on canonical citation graphs (Cora, Citeseer, PubMed), OGBN-ArXiv (inductive), synthetic role-bench graphs (planted-role), and at least one low-homophily real graph (e.g., Twitch/Actor). Use standardized transductive splits (20 labels/class), low-label regimes (5,10,20 per class), and inductive/temporal splits for OGB. Run each experiment with 30 independent seeds where feasible and provide split files for reproducibility.
+
+Baselines:
+Compare to strong baselines: GCN, GAT, GraphSAGE, APPNP, HGNN/HyperGCN, HNHN (hypergraph neural models), a role-only pipeline (struc2vec/role2vec + MLP), and a transformer/attention-based GNN. Include ablation models from HGMN family: HGMN without SSM, HGMN with RNN/LSTM instead of SSM, HGMN without role hyperedges, and HGMN without adjacency hyperedges.
+
+Ablation matrix (priority order):
+1) Role vs adjacency hyperedges (only-role, only-adj, both). 2) Fusion variants (concat, gating, cross-attention multi-head). 3) SSM vs no-SSM and SSM variants (diagonal, diag+lowrank, shared vs per-stream). 4) Residual styles (initial residual, pre-activation, learned skip weights). 5) Hyperedge weighting schemes (TF-IDF init vs uniform vs learned attention). 6) Sampling/scalability choices (full-batch vs minibatch cluster sampling).
+
+Evaluation metrics:
+Primary: accuracy and macro/micro F1 for node classification. Secondary: calibration (ECE), AUROC when applicable, class-wise recall/precision, and fairness gaps (group accuracy difference if sensitive attributes are present). Embedding diagnostics: Dirichlet energy, average pairwise cosine similarity across layers, and CKA/Centered Kernel Alignment to quantify oversmoothing and representational change.
+
+Robustness and OOD tests:
+1) Topology perturbations: random edge/hyperedge deletion and addition at rates {5,10,20,30,50}%. 2) Adversarial flips: targeted edge flips (5–20%) using degree-based or gradient-guided heuristics. 3) Feature corruption: Gaussian noise (σ in {0.1,0.5,1.0}), and random feature masking at rates {10,30,50}%. 4) Hyperedge noise: shuffle membership or add spurious hyperedges at {5–30}%. 5) Label scarcity/generalization: train with very-low-label regimes and evaluate transductive vs inductive generalization. 6) Domain shift: train on one cluster/community and test on others; temporal holdout for OGB.
+
+Statistical methodology and reporting:
+Report mean ± std over seeds, 95% confidence intervals, and per-dataset paired statistical tests (Wilcoxon signed-rank if normality unverified; paired t-test otherwise) comparing HGMN to top baselines. Report effect sizes (Cohen’s d) and adjust p-values for multiple comparisons (Benjamini-Hochberg). Provide ablation tables, significance annotations, and power justification for sample counts.
+
+Computational and reproducibility checklist:
+Report model parameter counts, peak GPU memory, training time per epoch, optimizer settings, learning rate schedule, and hardware. Open-source code, random seeds, dataset preprocessing scripts, hyperedge generation parameters, and exact evaluation scripts to allow replication.
+
+This protocol prioritizes demonstrating where HGMN improves predictive accuracy, long-range reasoning (SSM benefit), robustness to perturbations, and avoidance of oversmoothing, while quantifying costs and failure modes."
+Systems & Reproducibility Engineer: "Summary and plan: I will deliver a production-grade, reproducible codebase that implements HGMN with efficient hypergraph convolution kernels, scalable SSM integration, end-to-end training pipelines, experiment tracking, and deployment artifacts. The implementation will prioritize memory/GPU efficiency, deterministic runs, and easy ablation/benchmarking.
+
+Core implementation priorities and optimizations:
+- Modular code layout: hgm n/core (models: hypergraph_conv, ssm_kernel, fusion), data (hyperedge builders, samplers), training (train_loop, metrics), utils (seed, logging), and tests. Configuration via Hydra for reproducible hyperparameter sweeps.
+- Hypergraph ops: represent incidence H as sparse CSR/COO; implement diffusion operator Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2} using sparse-dense and sparse-sparse matmuls to avoid materializing large dense matrices. Provide two backends: PyG/PyTorch sparse for most uses and a custom fused CUDA kernel (sparse incidence × dense features) for hotspot layers when profiling shows CPU-bound overhead.
+- SSM integration: compute convolutional SSM kernels per-channel or grouped channels on CPU in float64 then cast to float32, use torch.fft-based convolution for long kernels, and implement grouped FFT conv to reduce memory. Provide both kernel-conv and recurrence implementations for ablation.
+- Memory & performance: mixed-precision training (AMP), activation checkpointing for deep stacks, optional fp16 kernel computations for SSM where stable, gradient clipping, and per-layer dropout. Support torch.distributed DDP and fairscale FSDP hooks for large models.
+- Minibatching/scaling: implement Cluster-GCN and neighborhood-based sub-hypergraph sampling; support block-sparse minibatches with preserved incidence indices and reset SSM states per batch. Provide fast hyperedge subsetting to avoid copying large incidence matrices.
+
+Reproducibility, CI/CD, and experiment tracking:
+- Containerization: Dockerfile with exact package versions; provide Conda env YAML and libs pinned. Include lightweight test dataset CI job to validate model/train/run.
+- Determinism: global seed propagation, torch.use_deterministic_algorithms(True) flag (with fallback), cudnn deterministic settings, and documented non-deterministic ops.
+- Experiment tracking: integrate WandB and MLflow hooks for hyperparams, artifacts, model checkpoints, and per-epoch metrics. Auto-save best checkpoints and dataset/hyperedge metadata JSON with checksums.
+- Tests & validation: unit tests for hypergraph normalization, SSM kernel consistency (conv vs recurrence), and end-to-end smoke training on small graphs. Add integration tests for DDP training.
+- Artifacts & release: pip-installable package, pretrained checkpoints for standard datasets, reproducible scripts to regenerate hyperedges and splits, and a README with exact commands to reproduce main tables.
+
+Evaluation and deliverables:
+- Provide benchmark scripts and configs for Cora, Citeseer, PubMed, OGBN-ArXiv, and synthetic role graphs with standardized splits and seed lists.
+- Deliverables: optimized codebase on GitHub, Docker image, CI pipeline, experiment tracking templates, unit/integration tests, and a reproducibility checklist with expected runtimes, GPU memory, and random seeds.
+
+Next step: I will produce the initial repo skeleton, a tested hypergraph diffusion operator implementation, and an FFT-backed SSM conv module for profiling; please confirm preferred experiment tracking (WandB or MLflow) and target GPU class for kernel tuning."
+Hypergraph Architect: "Summary and concrete plan (roles: Hypergraph Architect).
+
+Two representative HGMN variants
+- HGMN-light: 3 hypergraph-conv blocks (adjacency + role streams shared linear projections), per-stream convolutional SSM with small kernel (T=16, per-channel state N=16, grouped channels), gated fusion (single-head), single initial-residual per block. Budget: ~3–4×GCN FLOPs, peak GPU ~200–400MB on OGBN-ArXiv with mixed precision.
+- HGMN-heavy: 6 blocks, per-stream per-channel SSM (N=32, T=32), multi-head cross-attention fusion, learned hyperedge weights (diag+low-rank) and stronger regularizers. Budget: ~6–10×GCN FLOPs, peak GPU >1GB on OGBN-ArXiv.
+
+Per-layer computational and memory cost (example, OGBN-ArXiv: N≈170k, |E|≈1.16M, d=128)
+- GCN layer (sparse message passing): ≈2·|E|·d ≈ 300M FLOPs; activations ≈ N·d·4bytes ≈ 87MB.
+- Hypergraph-conv (two hyperedge-sets, incidence nnz ≈1.53M): ≈2·1.53M·d ≈ 392M FLOPs per hypergraph stream; two streams ≈780M FLOPs.
+- SSM conv (convolutional kernel per-channel, T=16): approx N·d·T ≈ 350M scalar ops (FFT can reduce constants for large T). Memory for SSM kernels is small; storing full per-hop sequences naively multiplies activation memory by T—use streaming/FFT conv to avoid that.
+- Practical implication: a single HGMN block (two hypergraph streams + SSM + fusion) ≈0.8–1.2 GFLOPs; heavy stacks multiply linearly. Use mixed precision, grouped SSMs, and minibatch sampling to keep memory <1GB for light variant.
+
+When SSM depth-aggregation helps
+- SSMs win when long-range dependencies matter (large diameter or low average degree), when many hops are needed but stacking layers causes oversmoothing, and when temporal-like multi-hop aggregation benefits from stable linear memory (planted-role recovery, chain/small-world graphs). SSMs are less beneficial when short-range structure suffices (very high avg degree, tiny diameters) or when attention across depth already captures necessary signals at low cost.
+
+Hyperedge-weight parameterization and regularization
+- Parameterize per-hyperedge logit α_e (learned scalar) or soft-membership logits s_{v,e} (node×hyperedge) normalized with row/column softmax. For scalability use low-rank factorization: S ≈ U·V^T with U∈R^{N×r}, V∈R^{E×r}. Regularizers: L2 on U,V, spectral-norm clamp on learned diffusion operator, entropy penalty on soft-membership to avoid collapse, and small ridge ε on De to stabilize inversion. Enforce degree-normalization Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2}.
+
+Fusion ablation suite and hypotheses
+- Methods: gated scalar fusion, concatenation+MLP, multi-head cross-attention, learned temperature on soft-membership priors. Hypotheses: gating favors role signals when prototype confidence high; cross-attention helps when streams carry complementary modalities; higher temperature biases fusion to dominant signal—use schedule or learned temp. Include ablations for soft vs hard membership and role-prior bias added to attention logits.
+
+Datasets and synthetic generators
+- Real: Cora, PubMed, OGBN-ArXiv, low-homophily graph (Actor/Twitch), and OGBN-Products for scale. Synthetic: planted-role SBM generator (configurable N, C roles, avg_degree, cross-role edge prob, noise_rewire) producing ground-truth roles and node features; long-range families (chains, ladders, Watts–Strogatz) to stress SSM.
+
+Profiling and reproducibility checklist (for reports)
+- Targets: per-layer FLOPs, peak GPU memory, epoch time, SSM kernel lengths, parameter counts, incidence nnz. Reproducibility: seeds list, nondeterministic ops flagged, Docker image + conda env, torch.use_deterministic_algorithms fallback note, unit tests for diffusion/SSM conv parity, saved hyperedge JSONs, and 30-seed sensitivity runs for core experiments.
+
+Two-week milestones and owners
+- Week 1–2: implement convolutional SSM module (FFT & recurrence) + sparse hypergraph diffusion ops (owner: Systems & SSM lead). Deliverable: prototype kernels + unit tests.
+- Week 1–2: implement HGMN-light, run initial ablations (SSM vs no-SSM, fusion types, hyperedge weighting) on Cora/PubMed and synthetic SBM (owner: Hypergraph Architect + Role Expert). Deliverable: prototype code + preliminary profiling table.
+
+I will produce concrete hyperedge-weight parameter code snippets, loss terms for stability, and a prioritized ablation matrix for the next meeting."
+State‑Space Modeling Specialist: "Summary and concrete SSM plan for Meeting 1 (decisions, costs, comparisons, and experiments).
+
+1) Chosen SSM variants for prototypes.
+- HGMN-light: convolutional SSM via bilinear (Tustin) discretization with diagonal-plus-low-rank A (A = diag(a) + U V^T), grouped-channel kernels, state-size per group N=16, kernel length L=T=16. Shared SSM parameters across nodes, separate per-stream weights.
+- HGMN-heavy: S4/HiPPO canonical parameterization for long memory, per-channel kernels, state-size N=32–64, kernel length L=32–64, FFT-based conv for efficiency.
+
+2) When SSMs outperform alternatives.
+- SSM depth-aggregation is advantageous when graphs require many hops to connect role-relevant nodes (diameter > 10 or average degree low < 4), when role signals are sparse but repeated across distant hops, or when deep stacks cause oversmoothing. SSMs are less beneficial for tiny-diameter/high-degree graphs or when a small number of attentive hops suffice.
+
+3) Per-layer computational & memory estimates (OGBN-ArXiv example: N≈170k, incidence nnz≈1.53M, d=128, T=16).
+- Hypergraph conv per-stream FLOPs ≈ 2·nnz·d ≈ 392M; two streams ≈ 784M FLOPs per block.
+- SSM conv (naive) ≈ N·d·T ≈ 170k·128·16 ≈ 350M scalar ops; using FFT/grouped conv reduces constants significantly for L>64.
+- Activations: single-layer embedding ~N·d·4B ≈ 87MB; naive per-hop sequence would multiply by T (~1.4GB), so implement streaming/FFT conv to avoid T× memory overhead. Practical single-block memory (mixed precision, grouped SSM) for HGMN-light typically <1GB; heavy variant >1GB and scales linearly with blocks.
+
+4) SSM hyperparameters, stability and quantification.
+- Parameterize diag(a) negative via a = -softplus(p). Constrain low-rank terms with weight decay and spectral-norm clipping. Measure stability by spectral radius of Ad (<1), impulse-response L2 norm, and kernel condition number. Sweep state-size N ∈ {8,16,32,64} and record classification gain vs parameter and runtime to quantify tradeoffs.
+
+5) Hyperedge-weight parameterization & regularizers.
+- Two-tier approach: learn per-hyperedge scalar logit α_e (We = softplus(α_e)) plus optional soft-membership S ≈ U V^T (low-rank) for node×hyperedge affinities. Regularizers: L2 on U,V, entropy penalty on per-node membership to avoid collapse, small ridge ε on De when inverting, and spectral-norm clamp on the learned diffusion operator.
+
+6) Fusion ablation suite and hypotheses.
+- Ablations: gated scalar fusion (sigmoid MLP), concat+MLP, multi-head cross-attention, learned temperature τ on soft-membership priors; gate-init bias favoring role stream (g≈0.6). Hypotheses: gating favors role when prototype confidence high; cross-attention helps when streams are complementary; higher τ amplifies dominant stream—schedule or learn τ.
+
+7) Profiling and reproducibility checklist (essentials).
+- Targets: per-layer FLOPs, param counts, peak GPU memory, epoch time, kernel lengths. Record nondeterministic ops (torch.fft, cudnn conv heuristics) and provide Docker image, pinned conda env, seed lists, torch.use_deterministic_algorithms fallback note, unit tests (diff conv vs recurrence), and 10–30 seed sensitivity runs.
+
+8) Interpretability & fairness diagnostics.
+- Quantify hyperedge influence by integrated-gradients on We/soft-membership, counterfactual removal (drop top-k hyperedges) and per-role group accuracy gaps; visualize top contributing hyperedges per prediction and prototype exemplars.
+
+I will deliver: (a) convolutional SSM kernel module (Tustin + FFT), (b) stability testbed for spectral radius/impulse norms, and (c) a short profiling script for OGBN-ArXiv to finalize light/heavy resource budgets within the two-week milestone."
+Role Representation & Graph Mining Expert: "Summary and immediate decisions: I finalize two representative HGMN variants and the experimental plan required for Meeting 1. HGMN-light: 3 hypergraph-conv blocks, two parallel streams (role + adjacency) with grouped convolutional SSM (per-group state N=16, kernel length T=16), gated fusion (single scalar gate initialized to favor role ~0.6), and initial-residual connections. HGMN-heavy: 6 blocks, per-channel S4/HiPPO-style SSM (N=32–64, T=32–64), multi-head cross-attention fusion, learned hyperedge logits plus low-rank soft-membership, and stronger regularizers.
+
+Role extraction and injection pipeline (concrete): compute multi-view structural signatures (degree sequence, k-hop degree histogram, clustering, motif counts, PageRank, WL counts), standardize and reduce to Drole=64 with PCA/autoencoder, produce soft-membership by GMM/soft-kmeans across Ks {8,16,32}, store per-node membership vector r. Create role hyperedges per prototype using top-k or threshold θ=0.6, cap hyperedge size S=256, weight initial w_e = membership_confidence / |e|. Project role and adjacency embeddings with separate linear heads and keep small orthogonality penalty on heads to preserve complementary information.
+
+Hyperedge weight parameterization and stability: support three modes—(1) per-hyperedge scalar logit α_e with We = softplus(α_e); (2) node×hyperedge soft-membership logits S parameterized as low-rank factorization S = softmax_row(UV^T) with rank r∈{8,16}; (3) hybrid scalar+soft-membership. Regularizers: L2 on U,V, entropy penalty on per-node membership to avoid collapse, ridge ε on De before inversion, and spectral-norm clipping on the learned diffusion operator to prevent ill-conditioning when overlaps are dense.
+
+Fusion ablations and hypotheses: compare gated fusion (sigmoid MLP on [role,adj]), concat+MLP, multi-head cross-attention (queries=role, keys/values=adj and vice versa), and learned temperature τ on soft-membership priors. Hypotheses: gating favors role when prototype confidence is high and features are weak; cross-attention benefits complementary signals and heterophilous settings; higher τ amplifies dominant stream—learn τ or anneal from role-biased → neutral during training.
+
+SSM vs alternatives and when SSM helps: SSM depth-aggregation outperforms deep residual stacks, dilated convs, or depth-attention when graphs require many hops to connect role-relevant nodes (diameter > 10, avg degree < 4), in low feature-label correlation or sparse role signals, and when deep stacks induce oversmoothing. SSMs are less valuable on tiny-diameter, very-high-degree graphs where short-range aggregation suffices.
+
+Per-layer compute/memory estimates (OGBN-ArXiv, N≈170k, incidence nnz≈1.53M, d=128, T=16): GCN single layer ≈2·|E|·d ≈ 300M FLOPs; hypergraph-conv per-stream ≈2·1.53M·d ≈ 392M FLOPs, two streams ≈784M FLOPs per block; naive SSM conv ≈N·d·T ≈ 350M scalar ops. A single HGMN block therefore ≈0.8–1.2 GFLOPs. Embedding memory ≈N·d·4B ≈ 87MB; naïve per-hop sequence would multiply activations by T (~1.4GB), so use streaming or FFT conv to avoid T× memory.
+
+Datasets and synthetic generator: Cora, PubMed, OGBN-ArXiv, plus a planted-role SBM (configurable N, C roles, avg_degree, cross-role prob, noise_rewire) and long-range families (chains, Watts–Strogatz) for SSM stress tests. Standardized splits: 20 labels/class, low-label regimes (5,10,20), and saved split files.
+
+Profiling & reproducibility checklist: report per-layer FLOPs, param counts, peak GPU memory, epoch time, SSM kernel lengths, incidence nnz, seeds (≥10/30 runs), nondeterministic ops list, Docker image + pinned env, unit tests (diff conv vs recurrence), and torch.use_deterministic_algorithms fallback behavior.
+
+Two-week milestones and owners: Week 1–2 implement and test convolutional SSM (FFT + recurrence) and sparse hypergraph diffusion ops (Systems/SSM lead). Parallel: implement HGMN-light, run initial ablations (SSM vs no-SSM, fusion types, hyperedge weighting) on Cora/PubMed and planted-SBM, and produce profiling table (Role & Hypergraph leads). Deliverables: prototype code, baseline results, complexity table, and profiling report."
+Data Curation Specialist: "Thank you — below is a concise, actionable data-curation plan aligned to Meeting‑1 decisions, prioritized ablations, profiling targets, reproducibility checks, and two‑week milestones to support HGMN development and evaluation.
+
+Datasets and provenance
+I will prepare: Cora, PubMed, OGBN‑ArXiv (canonical OGB splits), and one synthetic planted‑role SBM generator. For each real dataset I will include source URL, license, original checksum, raw feature/label files, and preprocessing notes (feature normalization, PCA options). For OGBN‑ArXiv I will keep the official temporal/inductive split.
+
+Hyperedge construction heuristics and metadata
+I will output two hyperedge families per dataset: role hyperedges and adjacency/feature hyperedges. Role hyperedges are created from structural signatures (multi‑view PCA/struc2vec) clustered at Ks={8,16,32} producing soft memberships; adjacency hyperedges come from k‑NN (k={8,16}), ego‑net (1–2 hops), and motif cliques (triangles). Each hyperedge artifact will include JSON metadata fields: id, type, node_list, initial_weight, creation_method, params (k/K/θ), membership_vector (if soft), max_size, and seed. I will cap hyperedge size (default 256) and split oversized hyperedges deterministically.
+
+Synthetic benchmark generator
+I will deliver a configurable planted‑role SBM script with parameters: N (1k–50k), C roles, avg_degree, within_role_prob, cross_role_prob, noise_rewire, feature_noise, and label_correlation. The generator outputs ground‑truth role labels, node features (label-correlated or random), hyperedges per role, and saved split files.
+
+Standardized splits and evaluation splits
+I will produce deterministic stratified transductive splits (20 labels/class), low‑label regimes (5,10,20 per class), 10 randomized folds, and an inductive split for OGBN datasets. All splits will be saved as index files with seed and generator version.
+
+Profiling targets and complexity estimates (to record)
+For each experiment I will record: number of nodes N, hyperedges E, incidence nnz, per-layer FLOPs estimate (e.g., hypergraph conv ≈2·nnz·d per stream), parameter counts, SSM kernel lengths, peak GPU memory, and epoch time. For OGBN‑ArXiv I will estimate worst‑case incidence nnz ≲3M (k‑NN + role hyperedges) and report measured FLOPs/memory during profiling.
+
+Hyperedge-weight parameterization & stability notes
+I will provide three hyperedge weight variants in artifacts: scalar logits (α_e → softplus), soft‑membership via low‑rank factorization S=softmax_row(UV^T), and hybrid scalar+soft membership. For each variant I will include suggested regularizers (L2 on U,V, entropy penalty on memberships, small ridge ε for De inversion) and scripts to compute degree matrices and normalized diffusion operator.
+
+Reproducibility checklist and artifacts
+Deliverables will include: incidence matrices in sparse CSR/COO, hyperedge JSONs, split index files, synthetic generator code, README with exact preprocessing commands, Dockerfile and conda environment YAML (pinned versions), unit tests (diffusion operator parity, SSM conv vs recurrence), list of nondeterministic ops, recommended deterministic fallback settings, and a seed sensitivity script (run N=10–30 seeds). I will also store checksums for all artifacts.
+
+Fairness and interpretability tests
+I will provide split variants for per‑role demographic-like groups, scripts for counterfactual hyperedge removals, and routines to compute hyperedge attribution (ablation influence on predictions) to support interpretability and fairness analyses.
+
+Two‑week milestones (owners)
+Week 1–2 deliverables (owner: Data Curation Specialist): prepared datasets with hyperedge artifacts and metadata, synthetic generator with ground‑truth roles, standardized splits, initial profiling scripts and complexity table for Cora/PubMed/OGBN‑ArXiv, and reproducibility artifact bundle (Docker + tests). I will coordinate with Systems for integrated profiling runs and with Model leads for required data formats."
+Evaluation & Robustness Lead: "I endorse and operationalize a rigorous evaluation, ablation and robustness plan that will demonstrate HGMN’s benefits and limitations, quantify costs, and provide reproducible artifacts for publication. Key points and concrete actions follow.
+
+1) Computational cost estimates (OGBN‑ArXiv example: N≈170k, incidence nnz≈1.53M, d=128, T=16)
+- Standard GCN layer (sparse edge list): ≈2·|E|·d ≈ 300M FLOPs; embedding activations ≈ N·d·4B ≈ 87MB.  
+- Hypergraph convolution (per-stream): ≈2·nnz·d ≈ 392M FLOPs; two streams ≈784M FLOPs per block.  
+- Naïve convolutional SSM across T hops: ≈N·d·T ≈ 350M scalar ops; using grouped kernels + FFT reduces constants and avoids storing T× activations.  
+- Practical HGMN block cost ≈0.8–1.2 GFLOPs; HGMN‑light (3 blocks) ≈2.4–3.6 GFLOPs, HGMN‑heavy (6 blocks) ≈4.8–7.2 GFLOPs. Mixed precision, grouped SSMs and minibatch sampling are required to keep peak GPU memory for HGMN‑light <1GB on OGBN‑ArXiv.
+
+2) When SSM depth‑aggregation is expected to outperform alternatives
+- SSMs are advantageous when long-range aggregation is required (graph diameter >10, average degree <4), role signals are sparse/long-range, or deep stacks induce oversmoothing. They are less beneficial for tiny‑diameter or very high‑degree graphs where short hops suffice or attention-based depth fusion already captures necessary signals.
+
+3) Hyperedge weight parameterization and stability
+- Support three modes: (A) per‑hyperedge scalar logits α_e with We = softplus(α_e); (B) soft‑membership S (node×hyperedge) parameterized as low‑rank factorization S = softmax_row(UV^T) with small rank r (8–16); (C) hybrid scalar+soft membership.  
+- Regularizers: L2 on U,V, entropy penalty on per‑node memberships to avoid collapse, ridge ε on De before inversion, and spectral‑norm clamps on learned diffusion operators. Always use Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2} normalization and monitor condition numbers.
+
+4) Fusion ablation suite and explicit hypotheses
+- Methods: gated scalar fusion (sigmoid MLP), concat+MLP, multi‑head cross‑attention (role→adj and adj→role), learned temperature τ on membership priors.  
+- Hypotheses: gating favors role when prototype confidence is high or node features are weak; cross‑attention benefits complementary modalities and heterophilous settings; higher τ amplifies dominant stream — test learned vs annealed τ schedules.
+
+5) Datasets and synthetic generators
+- Real: Cora, PubMed, OGBN‑ArXiv (official split), and one low‑homophily graph (Actor or Twitch).  
+- Synthetic: planted‑role SBM configurable by N, C roles, avg_degree, within_role_prob, cross_role_prob, noise_rewire; long‑range families (chains, ladders, Watts–Strogatz) to stress SSM. Provide ground‑truth role labels, hyperedges, and saved splits for reproducibility.
+
+6) SSM parameterizations to compare and stability metrics
+- Compare HiPPO/S4 canonical, diagonal+low‑rank A (A = diag(a)+UV^T) with Tustin discretization, and learned conv‑kernel implementations (FFT). Sweep state size N ∈ {8,16,32,64} and kernel lengths T ∈ {8,16,32,64}. Quantify stability by spectral radius of Ad, impulse‑response L2 norm, kernel condition number, and downstream accuracy per state size.
+
+7) Profiling and reproducibility checklist (report for each experiment)
+- Record: per‑layer FLOPs, parameter counts, incidence nnz, peak GPU memory, epoch time, SSM kernel lengths, optimizer/settings, hardware, and 30 fixed seeds. Provide Docker image + pinned Conda YAML, unit tests (diffusion parity, SSM conv vs recurrence), list of nondeterministic ops, and documented fallback when torch.use_deterministic_algorithms(True) is enabled.
+
+8) Hyperedge influence and fairness diagnostics
+- Attribution: integrated gradients or ablation influence on We/soft‑membership; counterfactual removal of top‑k hyperedges and report per‑node prediction changes. Fairness: per‑role group accuracy gaps, counterfactuals stratified by role prototypes, and visualization of top contributing hyperedges and prototypes as interpretable exemplars.
+
+9) Two‑week milestones and deliverables (owners)
+- Week 1–2 (Systems & SSM lead): deliver convolutional SSM module (FFT + recurrence), sparse hypergraph diffusion ops, unit tests, and a profiling script.  
+- Week 1–2 (Hypergraph Architect & Role Expert + Data): implement HGMN‑light, run initial ablations (SSM vs no‑SSM, fusion variants, hyperedge weighting) on Cora/PubMed/planted‑SBM, and submit prototype code, baseline results, complexity table and profiling report.
+
+I will run the statistical protocol (30 seeds, paired tests, Cohen’s d, FDR correction) on the delivered results and produce the final evaluation tables and robustness plots for the next meeting."
+Systems & Reproducibility Engineer: "Summary and concrete plan (Systems & Reproducibility Engineer):
+
+I will deliver a reproducible, high-performance HGMN codebase with optimized sparse hypergraph kernels, FFT-backed SSM conv, experiment tracking, CI/Docker artifacts, and a tight 2‑week prototype roadmap aligned to Meeting‑1 decisions.
+
+Concrete per-layer cost estimates (OGBN‑ArXiv example: N≈170k, incidence nnz≈1.53M, d=128, T=16):
+- Standard GCN layer (sparse edge list): ≈2·|E|·d ≈ 300M FLOPs; embedding memory ≈ N·d·4B ≈ 87MB (fp32).
+- Hypergraph conv (one stream): ≈2·nnz·d ≈ 392M FLOPs; two streams ≈784M FLOPs per block.
+- Naïve SSM conv (sequence length T=16): ≈ N·d·T ≈ 350M scalar ops; naive storage of per-hop activations multiplies memory by T (~1.4GB), so we will use FFT/streaming conv to avoid T× activation blowup and keep HGMN‑light peak memory <1GB with AMP and grouped SSMs.
+
+SSM and fusion choices:
+- Implement two SSM parameterizations: (1) Tustin-discretized diagonal+low-rank A (light prototype: grouped kernels, Ngroup=16, L=16), and (2) HiPPO/S4 canonical kernels for heavy long-memory experiments (per-channel, N=32–64, FFT conv).  
+- Provide fusion ablation suite: gated scalar fusion (sigmoid MLP), concat+MLP, multi-head cross-attention (role→adj and adj→role), and learned/annealed temperature on soft-membership priors. Hypotheses and configs will be codified for each run.
+
+Hyperedge weight parameterization and stability:
+- Support three modes: per-hyperedge scalar logits α_e (We=softplus(α_e)), node×hyperedge soft-membership S via low-rank factorization S=softmax_row(UV^T) (r∈{8,16}), and hybrid scalar+soft membership.  
+- Enforce normalization Dv^{-1/2} H We De^{-1} H^T Dv^{-1/2}, apply L2 on U,V, entropy penalty on memberships, ridge ε on De before inversion, and spectral-norm clipping on learned diffusion operators to prevent ill-conditioning.
+
+Profiling targets and reproducibility checklist:
+- For each experiment record per-layer FLOPs, param counts, incidence nnz, SSM kernel lengths, peak GPU memory, epoch time, hardware, and random seeds (≥10, recommended 30 for final tables).  
+- Deliver Docker image + pinned Conda YAML, unit tests (diffusion operator parity, conv vs recurrence SSM), integration smoke tests on small graphs, and a seed-sensitivity script. Use torch.use_deterministic_algorithms(True) as optional mode; document nondeterministic ops (torch.fft, some cudnn heuristics) and fallback behavior (may raise errors or fall back to slower deterministic kernels). Provide guidance to users on deterministic runs vs performance tradeoffs.
+
+Experiment tracking, CI and artifacts:
+- Default experiment tracking with Weights & Biases (MLflow optional), automatic artifact saving (hyperedge JSONs, hyperparams, checkpoints), and CI jobs that run unit tests and a smoke-end-to-end training. Release a pip-installable package, example configs (HGMN‑light/heavy), and prebuilt Docker image.
+
+Two‑week milestones and owners:
+- Week 1–2: implement and unit-test sparse hypergraph diffusion and convolutional SSM (FFT + recurrence) modules (Systems & SSM lead). Parallel: implement HGMN‑light, run initial ablations (SSM vs no‑SSM, fusion types, weight modes) on Cora/PubMed/planted‑SBM, and produce profiling report (Hypergraph & Data leads). Deliverables: prototype code, baseline results, complexity table, and reproducibility artifact bundle."
+Hypergraph Architect: "Below I finalize the core math for HGMN hypergraph convolution, a numerically stable De^{-1} recipe, and explicit multi‑hyperedge fusion rules for the light/heavy variants, plus brief trade‑offs.
+
+Notation
+- N nodes, E hyperedges, H ∈ {0,1}^{N×E} incidence (generalize to real-valued membership S when soft).  
+- X ∈ R^{N×d} node features/embeddings.  
+- We = diag(w_e) ∈ R^{E×E} learnable positive hyperedge weights.  
+- Dv = diag(d_v), d_v = Σ_e H_{v,e} w_e; De = diag(d_e), d_e = Σ_v H_{v,e}.  
+- Θ_f = Dv^{-1/2} H_f We_f De_f^{-1} H_f^T Dv^{-1/2} is the normalized diffusion operator for hyperedge family f.
+
+Hypergraph convolution (aggregation → update → readout)
+1) Aggregation (per hyperedge family f):
+Z_f = Θ_f X W_f  where W_f ∈ R^{d×d'} is a family-specific linear map.
+
+2) (Optional) SSM depth-aggregation:
+If using SSM across propagation-depth/blocks, pass per-node sequences of Z_f across hops into SSM_f producing S_f = SSM_f(Z_f_seq). In block-local form (single-step), treat SSM_f as an operator S_f(.) that smooths/aggregates along propagation depth.
+
+3) Fusion / Update:
+- HGMN-light (parameter-efficient):
+Compute per-node gate g ∈ (0,1) (scalar or per-dim):
+g = sigmoid(MLP([Z_role, Z_adj])).
+F = g ⊙ Z_role + (1−g) ⊙ Z_adj.
+X^{new} = LayerNorm( X + α · σ(F) ) with learned scalar α (initial α≈0.1) and σ nonlinearity.
+
+- HGMN-heavy (expressive):
+Project: Q = Z_role W_Q, K = Z_adj W_K, V = Z_adj W_V (multi-head).  
+Attn = MultiHeadAttn(Q,K,V). Optionally do symmetric attn both directions and concat results.  
+Concatenate streams: C = concat(Z_role, Attn, Z_adj) and update:
+X^{new} = LayerNorm( X + W_out · C + Dropout(Attn) ), with learned per-term scalars to control residual blending.
+
+4) Readout:
+Use per-task projection: logits = ReadoutHead(X^{new}) (MLP or linear classifier). For graph-level tasks use pooling over nodes.
+
+Numerically stable De^{-1} and practical implementation tips
+- Always compute De as a vector de_e = Σ_v H_{v,e} (or for soft S: de = S^T 1_N). Compute elementwise inverse with ridge:
+de_inv = 1.0 / (de + ε), with ε = 1e−6 to 1e−3 depending on scale. Do not form De^{-1} dense; use elementwise scaling on H^T or We-multiplied vectors.  
+- Constrain We to be positive via parameterizing logits a_e and set w_e = softplus(a_e) or exp(a_e) with initial a_e small (e.g., 0.1) to avoid zero degrees. Clip/normalize We (e.g., max-norm or L1 normalize per-family) to bound operator norm.  
+- For node×hyperedge soft-membership S parameterized low-rank S = softmax_row(UV^T), avoid materializing S when E large by computing U(V^T x) streaming or using sparse kernels; apply entropy penalty on rows to prevent degenerate collapse.  
+- If De is ill-conditioned (dense, huge variance), use preconditioned iterative solvers (CG) for linear systems or add larger ε and spectral‑norm clamp on Θ_f; monitor condition number of De and spectral radius of Θ_f during training.
+
+Combining multiple hyperedge families (design choices & trade‑offs)
+- Sum (Θ_total = Σ_f λ_f Θ_f, small per-family scalar λ_f): lowest extra params and stable; blends families but may wash out distinct signals. Good default for HGMN-light.  
+- Concatenation (Z = concat_f Θ_f X W_f → project): higher capacity, preserves per-family signals; increases parameters and memory; preferred for HGMN-heavy.  
+- Separate channels + attention (process each Θ_f separately, then cross-attend): maximal expressivity and interpretability, highest runtime and params; use for heavy variant when compute permits.
+
+Recommended defaults
+- Light: sum fusion of Θ_role and Θ_adj with gated scalar fusion on projected embeddings, w_e=softplus(logit) with ε=1e−6, gate bias init favoring role (bias≈+0.4 → g≈0.6).  
+- Heavy: per-family projections, per-family SSMs, concat + multi‑head cross‑attention fusion, low‑rank soft membership option, spectral-norm clamps and entropy regularizer.
+
+I will provide code snippets and a unit test verifying numerical equivalence of De^{-1} elementwise inversion vs small-size matrix inversion on request."
+State‑Space Modeling Specialist: "Summary (role & scope). I provide a concrete, implementable SSM design and integration plan for HGMN that (a) defines numerically-stable hypergraph diffusion inversion, (b) prescribes SSM parameterizations, initializations and training safeguards, (c) gives clear multi-hyperedge fusion defaults for light/heavy variants, and (d) lists immediate deliverables I will provide.
+
+1) Numerically stable De^{-1} (implementation recipe). Compute hyperedge degrees de_e = Σ_v H_{v,e} · w_e (or for soft S: de = S^T 1). Regularize and invert elementwise: de_inv = 1/(de + ε) with ε ∈ [1e−6,1e−3] chosen by scale. Never materialize De^{-1} dense; implement as elementwise scaling in sparse matmuls (scale H^T or We vectors). Constrain learned w_e via w_e = softplus(α_e) with α_e initialized small (e.g., 0.1) and optionally normalize per-family to bound operator norm. Monitor condition_number(De) and add ridge if it grows.
+
+2) Multi‑hyperedge fusion (defaults & trade‑offs).
+- Light (default): per-family diffusion Θ_f = Dv^{-1/2} H_f We_f De_f^{-1} H_f^T Dv^{-1/2}; aggregate families by learnable scalar weights: Θ = Σ_f λ_f Θ_f (λ_f positive via softplus). Project then gated-sum fusion: g = sigmoid(MLP([Z_role,Z_adj])); F = g⊙Z_role + (1−g)⊙Z_adj. Trade-offs: minimal params, stable, good baseline.
+- Heavy (expressive): keep per-family projections Z_f = Θ_f X W_f, concatenate {Z_f}, apply multi-head cross-attention (role↔adj) and MLP readout. Trade-offs: higher capacity and interpretability, greater memory and risk of overfitting; use when compute permits.
+
+3) SSM formulation and stable parameterization.
+- Continuous linear SSM: dx/dt = Ax + Bu, y = Cx + Du, discretize with bilinear (Tustin) transform to obtain (Ad,Bd,Cd,Dd). Parameterize A = diag(a) + U V^T where diag(a) negative on real part via a = −softplus(p). Initialize p so softplus(p) ∈ [0.5,1.5] (diag≈−0.5..−1.5). Keep low-rank UV small via weight decay.
+- Implement convolutional kernel y = K * u using precomputed impulse response K (compute in float64 then cast to float32). Use grouped or per-channel kernels: grouped channels reduce params/time; per-channel (heavy) for maximum capacity.
+- For long kernels use FFT-based convolution; for short L use direct conv. For heavy variant consider HiPPO/S4 canonical parameterization.
+
+4) Initializations, hyperparameters, and training schedule.
+- Light defaults: state-size N=16 per group, kernel length L=T=16, grouped channels (group size 8–16), AdamW lr=1e−3, weight_decay=1e−5, linear warmup 5–10% steps, cosine decay to 1e−5.
+- Heavy defaults: N=32–64, L=32–64, per-channel SSMs, same optimizer with lower base lr 3e−4.
+- Gate bias init: bias to favor role stream (set gate MLP bias so initial g≈0.6). Residual blend scalar α init small (0.1).
+
+5) Stability & monitoring checklist (automated hooks).
+- Track spectral_radius(Ad) each epoch and enforce <0.98; if >0.99 automatically scale A by factor <1.0. Flag and stop if spectral_radius>1.0.
+- Monitor SSM kernel L2-norm and condition number; alert if kernel_norm increases >×5 baseline.
+- Monitor De condition_number and per-hyperedge min degree; if min(de)<ε or cond>1e6 increase ε and/or regularize weights.
+- Gradient norm clipping at 1.0 (global); also track layerwise gradient norms. Early-warning thresholds: gradient_norm >10, loss spikes >×3.
+- Pre-layer LayerNorm on SSM inputs and use dropout 0.1–0.3.
+
+6) Minibatching / state handling.
+- Reset SSM per batch for sampled subgraphs; do not persist hidden states across batches except in full-transductive persistent buffer mode. For minibatches, compute sequences of per-node hop embeddings, stream or FFT-convolve to avoid T× activation memory.
+
+7) Ablations I will provide and tests I will deliver.
+- Ablation scripts: SSM vs no-SSM; diag vs diag+low-rank A; grouped vs per-channel SSM; shared vs separate SSM per stream; convolutional kernel vs recurrent recurrence.
+- Deliverables in 7 days: PyTorch SSM module (Tustin discretization, kernel precompute, FFT conv), stability testbed (spectral radius, kernel norms, De diagnostics), default hyperparameter YAMLs for light/heavy variants, and unit tests comparing conv vs recurrence implementations.
+
+If desired I will also produce a short profiling script (OGBN-ArXiv example) measuring kernel runtime, peak memory and FLOPs under the light/heavy configs."
+Role Representation & Graph Mining Expert: "Below I provide a concise, implementable role-representation plan, hyperedge construction rules for both transductive and inductive regimes, SSM training/stability guards, ablation controls to isolate role signal vs capacity, interpretability/fairness scripts and concrete owners/deadlines for Meeting‑2 deliverables.
+
+1) Role extraction & hyperedge construction (practical defaults)
+Compute multi‑view structural signatures per node: degree + k‑hop degree histogram (k=1..3), clustering, egonet density, motif counts (triangles/quads), PageRank, WL subtree counts. Standardize and reduce to D_role=64 via PCA/AE. Cluster at K∈{8,16,32} with soft assignments (temperature τ=0.2). Form role hyperedges per prototype using top‑k membership (k_role=⌈N/K⌉ capped) or threshold θ=0.6. Cap hyperedge size S_max=256; if |e|>S_max, deterministically split by intra‑role community detection (Louvain) into sub‑hyperedges. Initial hyperedge weight w_e = mean(membership_confidence)/|e| and parametrize learnable w_e = softplus(α_e).
+
+2) Inductive protocols to avoid leakage
+- Node holdout (inductive nodes): construct role prototypes using only training subgraph (edges between train nodes). For test nodes, compute their structural signatures using only incident edges that are allowed by the induction protocol; assign membership by projecting test signatures to train prototypes (no re‑clustering).  
+- Hyperedge holdout: remove hyperedges that include held‑out nodes during training; rebuild hyperedges from training nodes only and persist mapping to assign test nodes by prototype projection.  
+- Temporal splits: only use historical edges up to cutoff when computing signatures/hyperedges. Always save metadata recording which edges were accessible.
+
+3) SSM parameterization, initialization & monitoring
+Defaults: grouped SSMs for HGMN‑light (group state N_g=16, kernel L=16), per‑channel HiPPO/S4 for heavy (N=32–64, L=32–64). Parameterize A = −softplus(p) on diag + low‑rank UV with small init scale. Gate bias init to favor role (set bias so g≈0.6). Optimizer: AdamW, warmup 5% steps then cosine decay. Gradient clipping global 1.0. Automated monitors and triggers: spectral_radius(Ad) target <0.98 (if >0.99 scale A down and warn), SSM kernel L2 growth >×5 alert, De condition_number >1e6 or min(de)<1e−6 add ridge ε (start ε=1e−6). Log gradients, layerwise norms, and kernel condition.
+
+4) Ablation design to isolate role signal vs capacity
+Compare (a) adjacency‑only baseline, (b) adjacency with matched parameter count (increase width/depth to match HGMN params), (c) role hyperedges only, (d) concat role vectors as plain features (no hyperedges), (e) random‑role control (shuffle prototype assignments or random K‑means). Use paired tests across seeds; require Cohen’s d≥0.2 and p (FDR corrected) <0.05 to claim meaningful effect.
+
+5) Interpretability & fairness scripts and thresholds
+Provide runnable scripts that compute: hyperedge attributions via integrated gradients on hyperedge logits, counterfactual removal (drop top‑k contributing hyperedges and measure prediction delta), prototype exemplar lists and motif summaries, per‑role error dashboards. Automated flags: per‑role accuracy gap >5 percentage points, calibration ECE >0.05, per‑role recall drop >5% upon hyperedge removal.
+
+6) Owners & deadlines for Meeting‑2 deliverables
+- (A) Math appendix draft (hypergraph conv + De^{-1} recipe): Hypergraph Architect + Role Expert — 3 days.  
+- (B) Baseline + metric scripts (GCN, GAT, SIGN, HGNN; accuracy, macro‑F1, ECE, per‑role gaps) and stats protocol: Evaluation Lead — 5 days.  
+- (C) Inductive protocol code and hyperedge builders: Data Curation Specialist — 7 days.  
+- (D) Profiling runs (measured peak memory, FLOPs) and minibatch/sampling strategy: Systems & Reproducibility Engineer — 10 days.  
+- (E) Ablation plan + interpretability/fairness scripts: Role Expert + Evaluation Lead — 7 days.
+
+I will deliver the role‑extraction code, hyperedge JSON schema, ablation configs, and interpretability scripts for integration with the codebase and experiments."
+Data Curation Specialist: "I will deliver a reproducible, well-documented dataset and hyperedge artifact suite that enables rigorous, leakage‑free evaluation of HGMN and supports the Meeting‑2 deliverables. Key decisions, protocols, and planned outputs follow.
+
+Hyperedge construction defaults and justification:
+- Role hyperedges: compute multi‑view structural signatures (k‑hop degree histograms k=1..3, clustering coeff., PageRank, motif counts, WL counts), reduce to D_role=64 via PCA, cluster with soft k‑means at K∈{8,16,32} (temperature τ=0.2). Produce soft memberships and form hyperedges by top‑membership or threshold θ=0.6, cap hyperedge size S_max=256 and deterministically split oversized hyperedges by intra‑role community detection. Initialize hyperedge weight w_e = mean(membership_confidence)/|e| and parameterize learnable weights via w_e = softplus(α_e) with α_e init ≈0.1. These settings balance prototype specificity against over‑large hyperedges and are the defaults for sensitivity sweeps.
+- Adjacency/feature hyperedges: build k‑NN attribute hyperedges (k∈{8,16}), ego‑net hyperedges (1–2 hop), and motif cliques (triangles, 3‑cliques). Normalize initial weights by 1/|e| and optionally TF‑IDF‑style boosts for textual datasets.
+- Soft vs hard membership: support both; default is soft with low‑rank factorization S = softmax_row(UV^T) with rank r∈{8,16} for scalability. Regularizers include L2 on U,V and an entropy penalty on row distributions.
+
+Inductive protocol to avoid leakage:
+- Training only: form prototypes and role hyperedges using only training nodes and edges (or historical edges for temporal splits). Do not recluster with test data.
+- Assignment for held‑out/unseen nodes: project test node structural signatures onto train prototypes (fixed PCA + cluster centers) to obtain memberships; do not update prototypes with test data. For hyperedge holdout, remove hyperedges containing held nodes during training and reconstruct assignment at evaluation via prototype projection.
+- Temporal splits: compute signatures using only edges/timestamps available up to cutoff to prevent future leakage.
+
+Synthetic benchmark generator and controls:
+- Deliver a planted‑role SBM generator with parameters N (1k–50k), C roles, avg_degree, p_within/p_cross, noise_rewire, feature_noise, label_correlation. Outputs include ground‑truth role labels, role hyperedges, node features (label‑correlated or random), and deterministic splits.
+- Provide random‑role controls and capacity‑matched adjacency‑only baselines to isolate role signal from parameter count.
+
+Standardized splits, seeds, and metrics:
+- Produce deterministic split files: transductive (20 labels/class), low‑label regimes (5,10,20), 10 randomized folds, and OGB temporal/inductive splits. Save splits as index files (.npy) with seed and generator version. Recommend 30 independent seeds for final reporting, 10 seeds for early prototyping.
+- Artifact formats: sparse incidence in CSR/COO, hyperedge JSON schema (id,type,node_list,init_weight,params,membership_vector,seed), split npy, README with checksums.
+
+Reproducibility and deliverables:
+- I will deliver within 7 days: curated datasets (Cora, PubMed, OGBN‑ArXiv), hyperedge artifacts (role + adjacency families), synthetic generator, deterministic split files, hyperedge JSON schema, and basic profiling scripts (incidence nnz, per‑dataset FLOP estimates, measured peak memory snapshot hooks).
+- Within 14 days I will coordinate with Systems to run measured profiling on target hardware (peak GPU memory, epoch time, FLOPs) and produce the profiling report needed for minibatching/sampling decisions.
+- All artifacts include Dockerfile, pinned Conda YAML, unit tests (diffusion operator parity, hyperedge rebuild), checksums, and reproducibility README.
+
+I will coordinate closely with Systems (profiling), Evaluation (metrics and baselines), and Model leads (math appendix and fusion specs) to ensure data artifacts match implementation needs and inductive protocols are strictly enforced."
+
+**Instructions:**
+Based on your expertise, assigned role, and the feedback you received, provide a thoughtful and technically sound response to the current task or situation.
+Your response should reflect your specialization, align with your goal, and demonstrate collaboration within the research context.
+
+Output ONLY in STRING format (try to form understandable and research oriented complete sentences, do not just generate characters or words, try to be on the context and use have clarity and generate full well-structured sentences).
+DO NOT HAVE ANY EMPTY CHARACTERS OR PLACEHOLDERS IN YOUR RESPONSE. RESPONSE SHOULD BE IN COMPLETE WELL-STRUCTURED SENTENCES. (priority : very high), KEEP IN MIND THAT YOUR RESPONSE SHOULD NOT BE TOO LONG KEEPING ITS RESPONSE UNDER 450-500 WORDS.
+Your Response:
+
+------------------------------------------------------------
+
+RESPONSE:
+------------------------------------------------------------
+Below is a concise, actionable evaluation and robustness plan tied to Meeting‑2 objectives, with owners, deadlines, statistical rules, inductive safeguards, prioritized ablations, robustness tests, and monitoring thresholds so the team can execute reproducible experiments that convincingly validate HGMN.
+
+1) Primary experiment specs and baselines
+Evaluate HGMN against: GCN, GAT, GraphSAGE, APPNP, SIGN, HyperGCN, HGNN, HNHN, role‑only pipeline (struc2vec/role2vec+MLP), and a capacity‑matched adjacency baseline (wider/deeper GCN). Use standardized transductive splits (20 labels/class), low‑label regimes (5/10/20 per class), and OGBN‑ArXiv official temporal/inductive splits. Prototype runs: 10 seeds; final tables: 30 independent seeds.
+
+2) Metric suite and reporting
+Primary metrics: accuracy and macro‑F1. Secondary metrics: micro‑F1, ECE (5–10 bins), per‑class recall/precision, AUROC when relevant, per‑role accuracy gaps. Report mean±std, 95% CI, Cohen’s d effect size. Publish parameter counts, peak GPU memory, epoch time, and FLOPs for all models.
+
+3) Statistical testing protocol
+Use paired tests comparing HGMN to each top baseline per dataset: if normality holds (Shapiro test p>0.05) use paired t‑test; otherwise use Wilcoxon signed‑rank. Adjust p‑values via Benjamini‑Hochberg FDR. Declare meaningful improvement only when FDR‑adjusted p<0.05 AND Cohen’s d>0.2.
+
+4) Inductive/hyperedge construction protocol (no leakage)
+Build role prototypes and hyperedges using training nodes/edges only (or historical edges for temporal splits). For test/held nodes compute structural signatures using only allowed edges, then project onto fixed train prototypes to assign soft membership; do not recluster with test data. Cap hyperedge size at 256 and deterministically split oversized hyperedges by intra‑proto community to avoid giant hyperedges. Persist hyperedge JSONs and split files for reproducibility.
+
+5) Ablation priority (runnable matrix)
+High priority: (A) only‑role vs only‑adj vs both; (B) fusion types (gated, concat+MLP, cross‑attention); (C) SSM vs no‑SSM and SSM variants (diag, diag+lowrank, grouped vs per‑channel); (D) residual styles; (E) hyperedge weight modes (scalar logits, low‑rank soft membership, hybrid). Critical control: capacity‑matched adjacency models and random‑role controls (shuffle prototype labels) to isolate role signal from parameter count.
+
+6) Robustness and OOD tests (parameterized)
+Topology perturbations: random add/delete at {5,10,20,30,50}%. Adversarial flips: degree‑based and gradient‑guided at {5,10,20}%. Feature corruption: Gaussian noise σ∈{0.1,0.5,1.0} and masking {10,30,50}%. Hyperedge noise: membership shuffle / spurious hyperedges at {5,15,30}%. Label scarcity: train with {1,5,10,20} labels/class. Domain shift: train on one community/temporal window and test on others. Report metric degradations and per‑role sensitivity.
+
+7) Training stability & monitoring (automated hooks)
+Defaults: AdamW with linear warmup (5–10% steps) then cosine decay; initial gate bias favoring role (g≈0.6); gradient clipping at 1.0. Monitor spectral radius(Ad) and flag if >0.98; monitor SSM kernel L2 norm and De condition number; auto‑increase ridge ε or scale A if thresholds exceeded. Early stop on val metric with patience 20.
+
+8) Interpretability & fairness checks (runnable)
+Provide scripts for hyperedge attribution (integrated gradients), counterfactual removal (drop top‑k hyperedges), prototype exemplar lists, and per‑role error dashboards. Actionable flags: per‑role accuracy gap >5 percentage points, ECE>0.05, and accuracy drop >3% after removing top‑k hyperedges.
+
+9) Owners & deadlines for Meeting‑2 deliverables
+A) Math appendix (hypergraph conv + De^{-1} recipe): Hypergraph Architect — 3 days. B) Baseline + metric scripts and stats protocol: Evaluation Lead — 5 days. C) Inductive protocol code + hyperedge builders: Data Curation Specialist — 7 days. D) Profiling report (measured peak memory, FLOPs, minibatch strategy): Systems & Reproducibility Engineer — 10 days. E) Ablation configs and interpretability/fairness scripts: Evaluation Lead + Role Expert — 7 days.
+
+I will run the statistical analyses on delivered results, produce final tables with significance annotations and effect sizes, and prepare robustness plots for Meeting‑2.
+============================================================
+
+
