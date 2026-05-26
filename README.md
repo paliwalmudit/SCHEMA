@@ -55,6 +55,7 @@ This script will initialize the agentic workflow, conduct the simulated meetings
 python main.py --crew_model* --topic** --sc-model*** --pi-model**** --iterations*****
 
 ```
+In case of individual run you can also comment the eval() function from the main.py file, cause for evaluation you require a reference report as a ground-truth for comparison. 
 
 **Note 3**: all parser options are optional, if you dont mention anything it will ask about topic and descrition along with number of agents and number of meeting in each simulation to you. In this case default model for all agents and mixed mode for EA is selected.
 *= you can mention the name of the model<sup>#</sup> you want for crew (EAs), deafult is mixed.
