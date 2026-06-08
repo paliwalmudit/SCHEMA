@@ -19,5 +19,5 @@ def log(prompt, log_name, iteration, agent_information, selected_model, reasonin
     log_content += f"Reasoning: {reasoning}\n"
 
     # Write to file
-    with open(file_path, "w") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(log_content)
