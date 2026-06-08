@@ -7,27 +7,30 @@ import os
 from dotenv import load_dotenv 
 
 load_dotenv()
+# ONLY IN CASE OF MULTIPLE KEYS, OTHERWISE WE CAN JUST USE THE SINGLE KEY DIRECTLY.
+# # getting the tavily api key
+# # Load all keys
+# TAVILY_KEYS = [
+#     os.getenv("TAVILY_API_KEY_1"),
+#     os.getenv("TAVILY_API_KEY_2"),
+#     os.getenv("TAVILY_API_KEY_3"),
+#     os.getenv("TAVILY_API_KEY_4"),
+# ]
 
-# getting the tavily api key
-# Load all keys
-TAVILY_KEYS = [
-    os.getenv("TAVILY_API_KEY_1"),
-    os.getenv("TAVILY_API_KEY_2"),
-    os.getenv("TAVILY_API_KEY_3"),
-    os.getenv("TAVILY_API_KEY_4"),
-]
+# # remove empty values
+# TAVILY_KEYS = [k for k in TAVILY_KEYS if k]
 
-# remove empty values
-TAVILY_KEYS = [k for k in TAVILY_KEYS if k]
+# if not TAVILY_KEYS:
+#     raise Exception("No Tavily API keys found")
 
-if not TAVILY_KEYS:
-    raise Exception("No Tavily API keys found")
+# current_key_index = 0
 
-current_key_index = 0
+# tavily_api_key = TAVILY_KEYS[0]  # Start with the first key
 
-tavily_api_key = TAVILY_KEYS[0]  # Start with the first key
+tavily_api_key = os.getenv("TAVILY_API_KEY")  # Use a single key directly
 
 tavily_client = TavilyClient(api_key=tavily_api_key)
+
 
 # We need to have simpler question otherwise tavily will just answer "None".
 
