@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.stats import ttest_rel
 
-# Replace these with your actual 458 scores
+# these are the actual similarity scores taken from the results, this was generated to double check some results adn thus we have the whole list of values at one place. One of the system is SCHEMA(or VL stands for virtual lab) and other is for AI-Scientist V2. 
 system_a_text = """
 0.81174475
 0.7574720978736877
